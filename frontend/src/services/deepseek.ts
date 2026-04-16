@@ -1,6 +1,6 @@
 import type { ComplaintSummary } from '../store';
 
-const API_URL = 'https://api.deepseek.com/v1/chat/completions';
+const API_URL = '/api/deepseek/v1/chat/completions'; // proxied by Vite → api.deepseek.com
 const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY as string;
 
 const PROMPT = (count: number) => `Generate exactly ${count} realistic CFPB consumer financial complaint records as a JSON array.

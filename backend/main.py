@@ -22,7 +22,7 @@ from backend.data.sample_complaints import SAMPLE_COMPLAINTS
 
 # Load environment variables
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 
 
 @asynccontextmanager
@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Complaint Categorization AI",
+    title="Operon Intelligence — Complaint AI",
     description="Agentic AI system for financial complaint classification, risk assessment, and resolution",
     version="1.0.0",
     lifespan=lifespan
@@ -49,7 +49,7 @@ app.add_middleware(
 )
 
 # Initialize orchestrator
-orchestrator = Orchestrator(api_key=OPENAI_API_KEY)
+orchestrator = Orchestrator(api_key=DEEPSEEK_API_KEY)
 
 
 # ──────────────────────────────────────────────
@@ -281,8 +281,8 @@ async def analyze_complaint(request: AnalyzeRequest, background_tasks: Backgroun
     Submit a complaint for full agent pipeline analysis.
     Returns complaint_id immediately; use SSE endpoint to stream progress.
     """
-    if not OPENAI_API_KEY or OPENAI_API_KEY == "your-api-key-here":
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+    if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY == "your-api-key-here":
+        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY not configured")
 
     if not request.narrative.strip():
         raise HTTPException(status_code=400, detail="Complaint narrative is required")
@@ -320,8 +320,8 @@ async def analyze_complaint_sync(request: AnalyzeRequest):
     Submit a complaint and wait for full analysis (synchronous).
     Use this for direct results without SSE.
     """
-    if not OPENAI_API_KEY or OPENAI_API_KEY == "your-api-key-here":
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+    if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY == "your-api-key-here":
+        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY not configured")
 
     if not request.narrative.strip():
         raise HTTPException(status_code=400, detail="Complaint narrative is required")
@@ -460,8 +460,8 @@ async def dashboard_supervisor(limit: int = 6):
 @app.post("/api/complaints/batch")
 async def batch_process(request: BatchRequest, background_tasks: BackgroundTasks):
     """Batch-process multiple sample complaints."""
-    if not OPENAI_API_KEY or OPENAI_API_KEY == "your-api-key-here":
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+    if not DEEPSEEK_API_KEY or DEEPSEEK_API_KEY == "your-api-key-here":
+        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY not configured")
 
     # Get samples to process
     if request.complaint_ids:

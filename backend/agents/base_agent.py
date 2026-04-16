@@ -13,7 +13,7 @@ from backend.database import save_audit_log
 class BaseAgent(ABC):
     """Abstract base class for all complaint analysis agents."""
 
-    def __init__(self, client: httpx.Client, model: str = "gpt-4o-2024-08-06"):
+    def __init__(self, client: httpx.Client, model: str = "deepseek-chat"):
         self.client = client
         self.model = model
 
@@ -85,22 +85,15 @@ class BaseAgent(ABC):
             raise
 
     def _request_structured_output(self, user_message: str) -> dict:
-        """Call OpenAI chat completions with strict JSON schema output."""
-        schema = self._to_strict_json_schema(self.output_tool["input_schema"])
+        """Call DeepSeek chat completions with JSON output mode."""
         payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": self.system_prompt},
                 {"role": "user", "content": user_message},
             ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": self.output_tool["name"],
-                    "strict": True,
-                    "schema": schema,
-                },
-            },
+            "response_format": {"type": "json_object"},
+            "temperature": 0.1,
         }
 
         response = self.client.post("chat/completions", json=payload)
@@ -111,24 +104,16 @@ class BaseAgent(ABC):
         if not choices:
             raise ValueError(f"No choices returned from {self.agent_name}")
 
-        message = choices[0].get("message", {})
-        refusal = message.get("refusal")
-        if refusal:
-            raise ValueError(f"Model refusal from {self.agent_name}: {refusal}")
-
-        content = message.get("content")
+        content = choices[0].get("message", {}).get("content", "")
         if not content:
-            raise ValueError(f"No structured content returned from {self.agent_name}")
+            raise ValueError(f"No content returned from {self.agent_name}")
 
-        if isinstance(content, list):
-            text_chunks = [
-                part.get("text", "")
-                for part in content
-                if isinstance(part, dict) and part.get("type") in ("text", "output_text")
-            ]
-            content = "".join(text_chunks).strip()
+        # Strip accidental markdown fences
+        cleaned = content.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-        return json.loads(content)
+        return json.loads(cleaned)
 
     def _to_strict_json_schema(self, schema: dict) -> dict:
         """Recursively adapt a JSON schema to OpenAI Structured Outputs strict mode."""

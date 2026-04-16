@@ -23,7 +23,7 @@ class Orchestrator:
 
     def __init__(self, api_key: str):
         self.client = httpx.Client(
-            base_url="https://api.openai.com/v1/",
+            base_url="https://api.deepseek.com/v1/",
             timeout=90.0,
             headers={
                 "Authorization": f"Bearer {api_key}",

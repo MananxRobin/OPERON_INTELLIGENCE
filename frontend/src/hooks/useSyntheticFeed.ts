@@ -48,9 +48,9 @@ export function useSyntheticFeed() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function applyToStore(complaints: ReturnType<typeof generateSyntheticComplaints>) {
-  // Only populate if backend is not already providing real data
+  // Only skip if the backend has actually processed complaints — not just an empty connected DB
   const s = store();
-  if (s.backendConnected && s.backendStats !== null) return;
+  if (s.backendConnected && s.backendStats !== null && (s.backendStats.total_complaints ?? 0) > 0) return;
 
   const stats  = deriveStats(complaints);
   const trends = deriveTrends(complaints);

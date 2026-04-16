@@ -122,7 +122,14 @@ export const api = {
 };
 
 export async function fetchCfpbComplaints(params: Record<string, string | number | boolean | Array<string | number> | null | undefined> = {}): Promise<any> {
-  return api.cfpbSearch(params);
+  // Proxy: /api/cfpb → https://www.consumerfinance.gov/data-research/consumer-complaints/search/api/v1
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v == null) return;
+    if (Array.isArray(v)) v.forEach(item => qs.append(k, String(item)));
+    else qs.set(k, String(v));
+  });
+  return req(`/api/cfpb?${qs.toString()}`);
 }
 
 export function daysAgo(n: number): string {
