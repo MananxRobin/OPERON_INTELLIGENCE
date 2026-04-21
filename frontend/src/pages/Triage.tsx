@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { AgentSubnav } from '../components/agent/AgentSubnav';
 import { RoutingWhyPanel } from '../components/agent/RoutingWhyPanel';
 import { api } from '../services/api';
+import { useStore } from '../store';
 import type { ComplaintFilterOptions, ComplaintSummary, FullAnalysis } from '../store';
+import { syntheticAnalysis } from '../services/syntheticAnalysis';
 
 type FilterState = {
   product: string;
@@ -36,7 +38,8 @@ function toBool(value: '' | 'true' | 'false'): boolean | undefined {
   return undefined;
 }
 
-function formatLabel(value: string) {
+function formatLabel(value: string | null | undefined) {
+  if (!value) return '';
   return value.replaceAll('_', ' ').replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
@@ -79,7 +82,7 @@ function ComplaintListItem({
         {complaint.customer_state && <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>{complaint.customer_state}</span>}
         {complaint.channel && <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>{formatLabel(complaint.channel)}</span>}
         {complaint.needs_human_review && <span className="badge badge-red">Needs Review</span>}
-        {!!complaint.vulnerable_tags.length && <span className="badge badge-gray">Vulnerable Tag</span>}
+        {!!(complaint.vulnerable_tags ?? []).length && <span className="badge badge-gray">Vulnerable Tag</span>}
       </div>
     </button>
   );
@@ -87,6 +90,7 @@ function ComplaintListItem({
 
 export default function Triage() {
   const navigate = useNavigate();
+  const storedComplaints = useStore((s) => s.processedComplaints);
   const [filters, setFilters] = useState<FilterState>(INITIAL_FILTERS);
   const [options, setOptions] = useState<ComplaintFilterOptions | null>(null);
   const [complaints, setComplaints] = useState<ComplaintSummary[]>([]);
@@ -123,9 +127,24 @@ export default function Triage() {
           ? current
           : (payload.complaints?.[0]?.complaint_id ?? ''));
         setError('');
-      } catch (loadError) {
+      } catch {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : 'Could not load triage queue');
+          // Fall back to synthetic store data when backend is unavailable
+          let fallback = storedComplaints;
+          if (filters.product)       fallback = fallback.filter((c) => c.product === filters.product);
+          if (filters.risk_level)    fallback = fallback.filter((c) => c.risk_level === filters.risk_level);
+          if (filters.customer_state) fallback = fallback.filter((c) => c.customer_state === filters.customer_state);
+          if (filters.channel)       fallback = fallback.filter((c) => c.channel === filters.channel);
+          if (filters.vulnerable_only) fallback = fallback.filter((c) => (c.vulnerable_tags ?? []).length > 0);
+          if (filters.needs_review === 'true')  fallback = fallback.filter((c) => c.needs_human_review);
+          if (filters.needs_review === 'false') fallback = fallback.filter((c) => !c.needs_human_review);
+          if (filters.high_risk === 'true')     fallback = fallback.filter((c) => c.risk_level === 'CRITICAL' || c.risk_level === 'HIGH');
+          const sliced = fallback.slice(0, 80);
+          setComplaints(sliced);
+          setTotalCount(fallback.length);
+          setOptions(null);
+          setSelectedComplaintId(sliced[0]?.complaint_id ?? '');
+          setError('');
         }
       } finally {
         if (!cancelled) setLoadingList(false);
@@ -136,7 +155,7 @@ export default function Triage() {
     return () => {
       cancelled = true;
     };
-  }, [filters]);
+  }, [filters, storedComplaints]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,10 +172,16 @@ export default function Triage() {
           setAnalysis(payload);
           setError('');
         }
-      } catch (loadError) {
+      } catch {
         if (!cancelled) {
-          setAnalysis(null);
-          setError(loadError instanceof Error ? loadError.message : 'Could not load complaint detail');
+          // Build a lightweight analysis from the synthetic summary
+          const summary = storedComplaints.find((c) => c.complaint_id === selectedComplaintId);
+          if (summary) {
+            setAnalysis(syntheticAnalysis(summary));
+            setError('');
+          } else {
+            setAnalysis(null);
+          }
         }
       } finally {
         if (!cancelled) setLoadingDetail(false);
@@ -173,7 +198,7 @@ export default function Triage() {
     total: totalCount,
     highRisk: complaints.filter((item) => item.risk_level === 'HIGH' || item.risk_level === 'CRITICAL').length,
     needsReview: complaints.filter((item) => item.needs_human_review).length,
-    vulnerable: complaints.filter((item) => item.vulnerable_tags.length > 0).length,
+    vulnerable: complaints.filter((item) => (item.vulnerable_tags ?? []).length > 0).length,
   }), [complaints, totalCount]);
 
   const updateFilter = <K extends keyof FilterState>(key: K, value: FilterState[K]) => {

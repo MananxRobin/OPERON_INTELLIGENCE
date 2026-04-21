@@ -3,7 +3,9 @@ import { useEffect, useState } from 'react';
 import { AgentSubnav } from '../components/agent/AgentSubnav';
 import { RoutingWhyPanel } from '../components/agent/RoutingWhyPanel';
 import { api } from '../services/api';
+import { useStore } from '../store';
 import type { ComplaintSummary, FullAnalysis, SupervisorDashboardSnapshot } from '../store';
+import { syntheticAnalysis } from '../services/syntheticAnalysis';
 
 function QueuePanel({
   title,
@@ -54,7 +56,7 @@ function QueuePanel({
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               {complaint.needs_human_review && <span className="badge badge-red">Needs Review</span>}
               {complaint.sla_breach_risk && <span className="badge badge-gray">SLA Risk</span>}
-              {!!complaint.vulnerable_tags.length && <span className="badge badge-gray">Vulnerable Tag</span>}
+              {!!(complaint.vulnerable_tags ?? []).length && <span className="badge badge-gray">Vulnerable Tag</span>}
             </div>
           </button>
         )) : (
@@ -153,6 +155,7 @@ function BriefDrawer({
 }
 
 export default function Supervisor() {
+  const storedComplaints = useStore((s) => s.processedComplaints);
   const [snapshot, setSnapshot] = useState<SupervisorDashboardSnapshot | null>(null);
   const [selectedComplaintId, setSelectedComplaintId] = useState('');
   const [analysis, setAnalysis] = useState<FullAnalysis | null>(null);
@@ -169,9 +172,21 @@ export default function Supervisor() {
           setSnapshot(payload);
           setError('');
         }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : 'Could not load supervisor dashboard');
+      } catch {
+        if (!cancelled && storedComplaints.length > 0) {
+          const reviewQueue = storedComplaints.filter((c) => c.needs_human_review).slice(0, 20);
+          const riskQueue   = storedComplaints.filter((c) => c.risk_level === 'CRITICAL' || c.risk_level === 'HIGH').slice(0, 20);
+          const slaQueue    = storedComplaints.filter((c) => c.sla_breach_risk).slice(0, 20);
+          setSnapshot({
+            counts: {
+              needs_human_review:    storedComplaints.filter((c) => c.needs_human_review).length,
+              high_regulatory_risk:  storedComplaints.filter((c) => c.risk_level === 'CRITICAL' || c.risk_level === 'HIGH').length,
+              sla_breach_risk:       storedComplaints.filter((c) => c.sla_breach_risk).length,
+              vulnerable_customer_cases: storedComplaints.filter((c) => (c.vulnerable_tags ?? []).length > 0).length,
+            },
+            queues: { needs_human_review: reviewQueue, high_regulatory_risk: riskQueue, sla_breach_risk: slaQueue },
+          });
+          setError('');
         }
       }
     }
@@ -182,7 +197,8 @@ export default function Supervisor() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storedComplaints]);
 
   useEffect(() => {
     let cancelled = false;
@@ -199,10 +215,11 @@ export default function Supervisor() {
           setAnalysis(payload);
           setError('');
         }
-      } catch (loadError) {
+      } catch {
         if (!cancelled) {
-          setAnalysis(null);
-          setError(loadError instanceof Error ? loadError.message : 'Could not load complaint detail');
+          const summary = storedComplaints.find((c) => c.complaint_id === selectedComplaintId);
+          setAnalysis(summary ? syntheticAnalysis(summary) : null);
+          setError('');
         }
       } finally {
         if (!cancelled) setLoadingDetail(false);
@@ -214,6 +231,19 @@ export default function Supervisor() {
       cancelled = true;
     };
   }, [selectedComplaintId]);
+
+  useEffect(() => {
+    if (!selectedComplaintId || !snapshot) return;
+    const visibleIds = new Set([
+      ...snapshot.queues.needs_human_review.map((complaint) => complaint.complaint_id),
+      ...snapshot.queues.high_regulatory_risk.map((complaint) => complaint.complaint_id),
+      ...snapshot.queues.sla_breach_risk.map((complaint) => complaint.complaint_id),
+    ]);
+    if (!visibleIds.has(selectedComplaintId) && !storedComplaints.some((complaint) => complaint.complaint_id === selectedComplaintId)) {
+      setSelectedComplaintId('');
+      setAnalysis(null);
+    }
+  }, [selectedComplaintId, snapshot, storedComplaints]);
 
   const counts = snapshot?.counts;
 

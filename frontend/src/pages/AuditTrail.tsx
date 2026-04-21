@@ -4,10 +4,12 @@ import { AgentSubnav } from '../components/agent/AgentSubnav';
 import { api } from '../services/api';
 import { useStore } from '../store';
 import type { AuditEntry, FullAnalysis } from '../store';
+import { syntheticAnalysis } from '../services/syntheticAnalysis';
 
 const AGENT_ORDER = ['ClassificationAgent', 'ComplianceRiskAgent', 'RoutingAgent', 'ResolutionAgent', 'QAValidationAgent'];
 
-function formatReason(code: string) {
+function formatReason(code: string | null | undefined) {
+  if (!code) return '';
   return code.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
@@ -21,20 +23,41 @@ export default function AuditTrail() {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (analyzed.length === 0) {
+      if (selectedId) setSelectedId('');
+      return;
+    }
+    if (!selectedId || !analyzed.some((complaint) => complaint.complaint_id === selectedId)) {
+      setSelectedId(analyzed[0]?.complaint_id ?? '');
+    }
+  }, [analyzed, selectedId]);
+
   const load = useCallback(async (id: string) => {
-    if (!id) return;
+    if (!id) {
+      setTrail([]);
+      setDetail(null);
+      return;
+    }
     setLoading(true);
     try {
       const [auditData, detailData] = await Promise.all([api.audit(id), api.complaint(id)]);
       setTrail(auditData.audit_trail ?? []);
       setDetail(detailData);
     } catch {
-      setTrail([]);
-      setDetail(null);
+      const summary = complaints.find((c) => c.complaint_id === id);
+      if (summary) {
+        const fakeDetail = syntheticAnalysis(summary);
+        setDetail(fakeDetail);
+        setTrail([]);
+      } else {
+        setTrail([]);
+        setDetail(null);
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [complaints]);
 
   useEffect(() => {
     if (selectedId) load(selectedId);
@@ -204,6 +227,7 @@ export default function AuditTrail() {
               </div>
               {[
                 ['Product', detail.classification?.product],
+                ['Ticket', detail.ticket?.ticket_id],
                 ['Severity', detail.classification?.severity],
                 ['Criticality', detail.criticality?.level ? `${detail.criticality.level} · ${detail.criticality.score}` : null],
                 ['Source', detail.source_metadata?.source],

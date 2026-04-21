@@ -183,6 +183,91 @@ export interface ReviewDecision {
   created_at?: string;
 }
 
+export interface TicketHistoryEvent {
+  code: string;
+  label: string;
+  status: string;
+  timestamp: string | null;
+  detail: string;
+}
+
+export interface TicketRecord {
+  ticket_id: string;
+  complaint_id: string;
+  customer_id: string | null;
+  status: string;
+  stage: string;
+  owner_team: string;
+  queue: string;
+  priority: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  sla_hours: number | null;
+  due_at: string | null;
+  history: TicketHistoryEvent[];
+}
+
+export interface CustomerProfile {
+  customer_id: string;
+  full_name: string;
+  segment: string;
+  service_tier: string;
+  credit_score: number;
+  delinquency_days: number;
+  default_probability: number;
+  previous_complaints_count: number;
+  prior_regulatory_flags: number;
+  account_tenure_months: number;
+  annual_income_usd: number;
+  relationship_value_usd: number;
+  open_products_count: number;
+  open_products: string[];
+  deposit_balance_usd: number;
+  revolving_balance_usd: number;
+  loan_balance_usd: number;
+  credit_utilization_ratio: number;
+  autopay_enrolled: boolean;
+  hardship_program: boolean;
+  kyc_tier: string;
+  fraud_watch: boolean;
+  state: string | null;
+  preferred_channel: string;
+  next_payment_due: string;
+}
+
+export interface InternalTeamAssignment {
+  team_code: string;
+  team_name: string;
+  queue: string;
+  focus?: string;
+  priority?: string;
+  sla_hours?: number;
+  work_item_status?: string;
+  role?: string;
+  handoff_reason?: string;
+  status?: string;
+}
+
+export interface InternalTeamCatalogEntry {
+  code: string;
+  name: string;
+  focus: string;
+  queue: string;
+}
+
+export interface InternalTeamsPacket {
+  primary_team: InternalTeamAssignment;
+  handoffs: InternalTeamAssignment[];
+  team_catalog: InternalTeamCatalogEntry[];
+  data_bundle: Record<string, boolean>;
+}
+
+export interface RootCauseSummary {
+  code: string;
+  label: string;
+  reason: string;
+}
+
 export interface ComplaintSummary {
   complaint_id: string;
   status: string;
@@ -210,6 +295,8 @@ export interface ComplaintSummary {
   source_label?: string | null;
   baseline_delta?: BaselineDelta | null;
   latest_review_decision?: ReviewDecision | null;
+  customer_id?: string | null;
+  ticket_id?: string | null;
 }
 
 export interface SampleComplaint {
@@ -291,8 +378,62 @@ export interface FullAnalysis {
   normalization?: NormalizationResult | null;
   source_metadata?: SourceMetadata | null;
   latest_review_decision?: ReviewDecision | null;
+  customer_profile?: CustomerProfile | null;
+  internal_teams?: InternalTeamsPacket | null;
+  root_cause?: RootCauseSummary | null;
+  ticket?: TicketRecord | null;
   audit_trail: AuditEntry[];
   total_processing_time_ms: number | null;
+}
+
+export interface LookupRecord {
+  customer_id: string;
+  full_name: string;
+  state: string | null;
+  credit_score: number;
+  default_probability: number;
+  previous_complaints_count: number;
+  complaint_id: string;
+  ticket_id: string;
+  ticket_status: string;
+  product: string;
+  issue: string;
+  risk_level: string;
+  criticality_score: number;
+  assigned_team: string;
+  queue: string;
+  submitted_at: string;
+}
+
+export interface CustomerLookupMetrics {
+  total_complaints: number;
+  open_tickets: number;
+  critical_cases: number;
+  high_risk_cases: number;
+  total_products: number;
+  total_loans: number;
+}
+
+export interface CustomerLookupComplaint {
+  complaint_id: string;
+  ticket_id: string;
+  product: string;
+  issue: string;
+  risk_level: string;
+  criticality_score: number;
+  assigned_team: string;
+  status: string;
+  submitted_at: string;
+}
+
+export interface CustomerLookupResponse {
+  customer_id: string;
+  profile: CustomerProfile;
+  metrics: CustomerLookupMetrics;
+  complaints: CustomerLookupComplaint[];
+  tickets: TicketRecord[];
+  timeline: TicketHistoryEvent[];
+  latest_complaint_id: string;
 }
 
 export interface SyntheticCfpbRow {
@@ -344,6 +485,31 @@ export interface NormalizationPreviewResponse {
   total_rows: number;
   high_confidence_rows: number;
   needs_review_rows: number;
+  canonical_columns?: string[];
+}
+
+export interface IntakePreviewResponse {
+  canonical_columns: string[];
+  sections: Array<{
+    channel: string;
+    label: string;
+    description: string;
+    count: number;
+  }>;
+  rows: Array<Record<string, unknown>>;
+}
+
+export interface InternalTeamMetric {
+  code: string;
+  name: string;
+  focus: string;
+  queue: string;
+  complaint_count: number;
+  high_risk_count: number;
+  needs_review_count: number;
+  avg_criticality: number;
+  avg_credit_score: number;
+  sample_complaints: ComplaintSummary[];
 }
 
 export interface ScheduleRun {

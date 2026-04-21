@@ -48,9 +48,11 @@ export function useSyntheticFeed() {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function applyToStore(complaints: ReturnType<typeof generateSyntheticComplaints>) {
-  // Only skip if the backend has actually processed complaints — not just an empty connected DB
+  // Keep synthetic complaints out of the shared store once the real backend has
+  // any analyzed complaints; otherwise detail pages end up pointing at IDs that
+  // do not exist in the backend and navigation feels inconsistent.
   const s = store();
-  if (s.backendConnected && s.backendStats !== null && (s.backendStats.total_complaints ?? 0) > 0) return;
+  if (s.backendConnected && ((s.backendStats?.total_complaints ?? 0) > 0 || s.processedComplaints.length > 0)) return;
 
   const stats  = deriveStats(complaints);
   const trends = deriveTrends(complaints);
@@ -66,6 +68,9 @@ function applyToStore(complaints: ReturnType<typeof generateSyntheticComplaints>
 
 function prependBatch(batch: ReturnType<typeof generateSyntheticComplaints>) {
   const s = store();
+  if (s.backendConnected && ((s.backendStats?.total_complaints ?? 0) > 0 || s.processedComplaints.length > 0)) {
+    return;
+  }
   const existing = s.processedComplaints;
 
   // Mark new entries

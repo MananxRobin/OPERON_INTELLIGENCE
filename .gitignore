@@ -17,6 +17,9 @@ __pycache__/
 *.pyc
 *.pyo
 .venv/
+.pytest_cache/
+.coverage
+coverage/
 
 # ── SQLite databases ──────────────────────────────────────────────────────────
 *.db
@@ -40,3 +43,6 @@ pnpm-debug.log*
 *.njsproj
 *.sln
 *.sw?
+
+# ── Local tooling artifacts ───────────────────────────────────────────────────
+.playwright-cli/

@@ -1,6 +1,9 @@
 """
 Compliance Risk Agent — Assesses regulatory risk and flags potential violations.
 """
+import re
+from typing import Any
+
 from backend.agents.base_agent import BaseAgent
 
 
@@ -145,3 +148,49 @@ Analyze this complaint for potential regulatory violations.
 Score the overall risk (0-100) and flag specific violations with evidence quotes from the narrative.
 Each flag must cite the specific regulation and the exact narrative text that triggers the concern.
 Your analysis must be explainable and suitable for regulatory review."""
+
+    def normalize_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        try:
+            result["risk_score"] = int(float(result.get("risk_score", 50)))
+        except (TypeError, ValueError):
+            result["risk_score"] = 50
+        result["risk_level"] = str(result.get("risk_level", "MEDIUM")).upper()
+        result["reasoning"] = str(result.get("reasoning", "Compliance reasoning unavailable."))
+        result["requires_escalation"] = bool(result.get("requires_escalation", result["risk_level"] in {"HIGH", "CRITICAL"}))
+
+        flags = result.get("flags", [])
+        normalized_flags: list[dict[str, str]] = []
+        if isinstance(flags, list):
+            for item in flags:
+                if isinstance(item, dict):
+                    normalized_flags.append({
+                        "regulation": str(item.get("regulation", "UDAAP")),
+                        "regulation_name": str(item.get("regulation_name", item.get("regulation", "UDAAP"))),
+                        "description": str(item.get("description", "")),
+                        "evidence_quote": str(item.get("evidence_quote", "")),
+                        "severity": str(item.get("severity", result["risk_level"])),
+                    })
+                elif isinstance(item, str):
+                    regulation_match = re.match(r"([A-Z/ .\-§0-9]+)", item)
+                    evidence_match = re.search(r"'([^']+)'", item)
+                    regulation = (regulation_match.group(1).split()[0] if regulation_match else "UDAAP").replace("/", "").strip() or "UDAAP"
+                    normalized_flags.append({
+                        "regulation": regulation,
+                        "regulation_name": regulation,
+                        "description": item,
+                        "evidence_quote": evidence_match.group(1) if evidence_match else "",
+                        "severity": result["risk_level"],
+                    })
+        result["flags"] = normalized_flags
+
+        applicable = result.get("applicable_regulations", [])
+        if isinstance(applicable, list):
+            normalized_applicable = [str(item) for item in applicable]
+        elif isinstance(applicable, str):
+            normalized_applicable = [part.strip() for part in applicable.split(",") if part.strip()]
+        else:
+            normalized_applicable = []
+        if not normalized_applicable:
+            normalized_applicable = sorted({flag["regulation"] for flag in normalized_flags})
+        result["applicable_regulations"] = normalized_applicable
+        return result

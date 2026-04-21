@@ -5,6 +5,7 @@ import { AgentSubnav } from '../components/agent/AgentSubnav';
 import { api } from '../services/api';
 import { useStore } from '../store';
 import type { EvidenceReference, FullAnalysis } from '../store';
+import { syntheticAnalysis } from '../services/syntheticAnalysis';
 
 type EvidenceFocus = 'severity' | 'compliance' | 'routing' | 'review';
 
@@ -15,7 +16,8 @@ const FOCUS_LABELS: Record<EvidenceFocus, string> = {
   review: 'Review Evidence',
 };
 
-function formatReason(code: string) {
+function formatReason(code: string | null | undefined) {
+  if (!code) return '';
   return code.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
@@ -119,11 +121,12 @@ export default function Complaints() {
     try {
       setDetail(await api.complaint(complaintId));
     } catch {
-      setDetail(null);
+      const summary = complaints.find((c) => c.complaint_id === complaintId);
+      setDetail(summary ? syntheticAnalysis(summary) : null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [complaints]);
 
   useEffect(() => {
     if (selected) loadDetail(selected);
@@ -132,6 +135,23 @@ export default function Complaints() {
   useEffect(() => {
     if (id) setSelected(id);
   }, [id]);
+
+  useEffect(() => {
+    if (filtered.length === 0) {
+      if (selected !== null) setSelected(null);
+      return;
+    }
+
+    const current = id ?? selected;
+    const exists = current ? filtered.some((complaint) => complaint.complaint_id === current) : false;
+    if (exists) return;
+
+    const fallbackId = filtered[0]?.complaint_id ?? null;
+    setSelected(fallbackId);
+    if (fallbackId) {
+      navigate(`/complaints/${fallbackId}`, { replace: true });
+    }
+  }, [filtered, id, navigate, selected]);
 
   const evidenceRefs = detail?.evidence_map?.[focus] ?? [];
 
@@ -188,6 +208,9 @@ export default function Complaints() {
                     {complaint.issue ?? complaint.narrative_preview}
                   </div>
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    {complaint.ticket_id && (
+                      <span style={{ fontSize: 9, color: 'var(--primary)' }}>{complaint.ticket_id}</span>
+                    )}
                     {complaint.risk_score != null && (
                       <span style={{ fontSize: 9, color: complaint.risk_score >= 70 ? 'var(--accent)' : 'var(--text-mid)', fontVariantNumeric: 'tabular-nums' }}>
                         Risk {complaint.risk_score}
@@ -201,7 +224,7 @@ export default function Complaints() {
                     {complaint.needs_human_review && (
                       <span className="badge badge-red">Review</span>
                     )}
-                    <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>{complaint.source.replaceAll('_', ' ')}</span>
+                    <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>{(complaint.source ?? '').replaceAll('_', ' ')}</span>
                   </div>
                 </div>
               );
@@ -246,6 +269,12 @@ export default function Complaints() {
                   </span>
                 )}
                 {detail.review_gate?.needs_human_review && <span className="badge badge-red">Needs Review</span>}
+                {detail.ticket?.ticket_id && <span className="badge badge-gray">{detail.ticket.ticket_id}</span>}
+                {detail.customer_profile?.customer_id && (
+                  <button className="btn btn-ghost" onClick={() => navigate('/lookup')} style={{ fontSize: 10 }}>
+                    Open Look-up →
+                  </button>
+                )}
                 <button className="btn btn-ghost" onClick={() => navigate('/audit')} style={{ fontSize: 10 }}>
                   View Audit Trail →
                 </button>
@@ -395,6 +424,121 @@ export default function Complaints() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {detail.ticket && (
+                <div style={{ display: 'grid', gridTemplateColumns: '0.95fr 1.05fr', gap: 16 }}>
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 10 }}>Ticket</div>
+                    <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', padding: '12px 14px' }}>
+                      {[
+                        ['Ticket ID', detail.ticket.ticket_id],
+                        ['Stage', detail.ticket.stage],
+                        ['Status', detail.ticket.status],
+                        ['Owner Team', detail.ticket.owner_team],
+                        ['Queue', detail.ticket.queue],
+                        ['Priority', detail.ticket.priority ?? '—'],
+                        ['SLA', detail.ticket.sla_hours ? `${detail.ticket.sla_hours}h` : '—'],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-weak)' }}>{label}</span>
+                          <span style={{ fontSize: 10, color: 'var(--primary)' }}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="section-label" style={{ marginBottom: 10 }}>Ticket Timeline</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {(detail.ticket.history ?? []).map((event, index) => (
+                        <div key={`${event.code}-${index}`} style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', padding: '10px 12px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                            <span style={{ fontSize: 10, color: 'var(--primary)' }}>{event.label}</span>
+                            <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>{event.timestamp?.slice(0, 16).replace('T', ' ') ?? '—'}</span>
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.6 }}>{event.detail}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {(detail.customer_profile || detail.internal_teams) && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  {detail.customer_profile && (
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 10 }}>Customer Profile</div>
+                      <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', padding: '12px 14px' }}>
+                        {[
+                          ['Customer', detail.customer_profile.full_name],
+                          ['Customer ID', detail.customer_profile.customer_id],
+                          ['Credit Score', detail.customer_profile.credit_score],
+                          ['Delinquency', `${detail.customer_profile.delinquency_days} days`],
+                          ['Default Probability', `${Math.round(detail.customer_profile.default_probability * 100)}%`],
+                          ['Previous Complaints', detail.customer_profile.previous_complaints_count],
+                          ['Open Products', detail.customer_profile.open_products.join(', ')],
+                          ['Relationship Value', `$${detail.customer_profile.relationship_value_usd.toLocaleString()}`],
+                        ].map(([label, value]) => (
+                          <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--border)' }}>
+                            <span style={{ fontSize: 10, color: 'var(--text-weak)' }}>{label}</span>
+                            <span style={{ fontSize: 10, color: 'var(--primary)', maxWidth: 220, textAlign: 'right' }}>{value}</span>
+                          </div>
+                        ))}
+                        <div style={{ paddingTop: 10, fontSize: 10, color: 'var(--secondary)', lineHeight: 1.6 }}>
+                          Account overview: deposit balance ${detail.customer_profile.deposit_balance_usd.toLocaleString()},
+                          revolving balance ${detail.customer_profile.revolving_balance_usd.toLocaleString()},
+                          loan balance ${detail.customer_profile.loan_balance_usd.toLocaleString()},
+                          utilization {Math.round(detail.customer_profile.credit_utilization_ratio * 100)}%.
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {detail.internal_teams && (
+                    <div>
+                      <div className="section-label" style={{ marginBottom: 10 }}>Internal Team Flow</div>
+                      <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', padding: '12px 14px' }}>
+                        <div style={{ marginBottom: 12 }}>
+                          <div style={{ fontSize: 10, color: 'var(--text-weak)', marginBottom: 4 }}>Primary Team</div>
+                          <div style={{ fontSize: 11, color: 'var(--primary)', marginBottom: 4 }}>
+                            {detail.internal_teams.primary_team.team_name}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.6 }}>
+                            Queue: {detail.internal_teams.primary_team.queue} · SLA {detail.internal_teams.primary_team.sla_hours ?? detail.routing?.sla_hours ?? '—'}h
+                          </div>
+                        </div>
+                        {detail.root_cause && (
+                          <div style={{ marginBottom: 12, padding: '8px 10px', border: '1px solid var(--border)', background: 'var(--bg-1)' }}>
+                            <div style={{ fontSize: 9, color: 'var(--text-weak)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 5 }}>Root Cause</div>
+                            <div style={{ fontSize: 10, color: 'var(--primary)', marginBottom: 4 }}>{detail.root_cause.label}</div>
+                            <div style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.6 }}>{detail.root_cause.reason}</div>
+                          </div>
+                        )}
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 9, color: 'var(--text-weak)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Handoffs</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {(detail.internal_teams.handoffs ?? []).map((handoff) => (
+                              <div key={`${handoff.team_code}-${handoff.team_name}`} style={{ padding: '8px 10px', border: '1px solid var(--border)' }}>
+                                <div style={{ fontSize: 10, color: 'var(--primary)', marginBottom: 4 }}>{handoff.team_name}</div>
+                                <div style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.6 }}>{handoff.handoff_reason}</div>
+                              </div>
+                            ))}
+                            {!detail.internal_teams.handoffs?.length && (
+                              <div style={{ fontSize: 10, color: 'var(--text-faint)' }}>No secondary handoffs for this complaint.</div>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {Object.entries(detail.internal_teams.data_bundle ?? {}).map(([key, enabled]) => enabled ? (
+                            <span key={key} className="badge badge-gray">{formatReason(key)}</span>
+                          ) : null)}
+                        </div>
                       </div>
                     </div>
                   )}

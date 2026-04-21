@@ -1,6 +1,8 @@
 """
 Resolution Agent — Generates complete resolution plans, customer responses, and prevention recommendations.
 """
+from typing import Any
+
 from backend.agents.base_agent import BaseAgent
 
 
@@ -136,3 +138,23 @@ Generate:
 3. Internal notes for the handling team
 4. Preventive recommendations to stop this issue from recurring
 5. An estimated remediation amount if applicable"""
+
+    def normalize_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        for key in ("action_plan", "preventive_recommendations"):
+            value = result.get(key, [])
+            if isinstance(value, list):
+                result[key] = [str(item) for item in value]
+            elif isinstance(value, str):
+                result[key] = [line.strip("- ").strip() for line in value.splitlines() if line.strip()]
+            else:
+                result[key] = []
+
+        result["customer_response"] = str(result.get("customer_response", "We have received your complaint and opened a review."))
+        result["internal_notes"] = str(result.get("internal_notes", "Internal notes unavailable."))
+        result["remediation_amount"] = str(result.get("remediation_amount", "N/A"))
+        result["reasoning"] = str(result.get("reasoning", "Resolution reasoning unavailable."))
+        try:
+            result["estimated_resolution_days"] = int(float(result.get("estimated_resolution_days", 5)))
+        except (TypeError, ValueError):
+            result["estimated_resolution_days"] = 5
+        return result

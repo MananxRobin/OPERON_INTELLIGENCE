@@ -4,6 +4,7 @@ const ITEMS = [
   { to: '/analyze', label: 'Analyze' },
   { to: '/triage', label: 'Triage' },
   { to: '/supervisor', label: 'Supervisor' },
+  { to: '/lookup', label: 'Look-up' },
   { to: '/complaints', label: 'Complaints' },
   { to: '/audit', label: 'Audit Trail' },
 ];

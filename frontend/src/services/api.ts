@@ -1,9 +1,13 @@
 import type {
   ComplaintListResponse,
   ComplaintSummary,
+  CustomerLookupResponse,
   DashboardStats,
   DashboardTrends,
   FullAnalysis,
+  IntakePreviewResponse,
+  InternalTeamMetric,
+  LookupRecord,
   NormalizationPreviewResponse,
   ReviewDecision,
   SampleComplaint,
@@ -39,6 +43,13 @@ export const api = {
   stats: () => req<DashboardStats>('/api/dashboard/stats'),
   trends: (days = 14) => req<DashboardTrends>(`/api/dashboard/trends?days=${days}`),
   dashboardSupervisor: (limit = 6) => req<SupervisorDashboardSnapshot>(`/api/dashboard/supervisor?limit=${limit}`),
+  intakePreview: () => req<IntakePreviewResponse>('/api/intake/preview'),
+  internalTeams: () => req<{ teams: InternalTeamMetric[]; total: number }>('/api/internal-teams'),
+  lookupRecords: (params: { q?: string; limit?: number; offset?: number } = {}) =>
+    req<{ records: LookupRecord[]; total: number }>(
+      `/api/lookup?${toQuery({ q: params.q ?? '', limit: params.limit ?? 120, offset: params.offset ?? 0 })}`
+    ),
+  lookupCustomer: (customerId: string) => req<CustomerLookupResponse>(`/api/lookup/customers/${customerId}`),
   complaints: (
     limitOrParams:
       | number

@@ -18,7 +18,7 @@ function Para({ children }: { children: React.ReactNode }) {
 
 function GlossaryEntry({ term, def }: { term: string; def: string }) {
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--bg-1)' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
       <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--primary)', letterSpacing: '0.02em' }}>{term}</span>
       <span style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.6 }}>{def}</span>
     </div>
@@ -27,7 +27,7 @@ function GlossaryEntry({ term, def }: { term: string; def: string }) {
 
 function StepCard({ n, title, desc }: { n: number; title: string; desc: string }) {
   return (
-    <div style={{ display: 'flex', gap: 14, padding: '12px 0', borderBottom: '1px solid var(--bg-1)' }}>
+    <div style={{ display: 'flex', gap: 14, padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
       <div style={{ width: 24, height: 24, borderRadius: 2, background: 'var(--bg-2)', border: '1px solid var(--border-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
         <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-weak)', fontVariantNumeric: 'tabular-nums' }}>{String(n).padStart(2, '0')}</span>
       </div>
@@ -41,7 +41,7 @@ function StepCard({ n, title, desc }: { n: number; title: string; desc: string }
 
 function RiskBadge({ level, color, desc }: { level: string; color: string; desc: string }) {
   return (
-    <div style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--bg-1)', alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)', alignItems: 'flex-start' }}>
       <span style={{ fontSize: 9, fontWeight: 700, color, letterSpacing: '0.08em', minWidth: 60, paddingTop: 1 }}>{level}</span>
       <span style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.6 }}>{desc}</span>
     </div>
@@ -87,7 +87,7 @@ export default function Docs() {
               padding: '7px 18px 7px 20px',
               background: 'transparent', border: 'none',
               borderLeft: `2px solid ${activeSection === s.id ? 'var(--accent)' : 'transparent'}`,
-              color: activeSection === s.id ? 'var(--primary)' : 'var(--text-mid)',
+              color: activeSection === s.id ? 'var(--primary)' : 'var(--secondary)',
               fontSize: 10, cursor: 'pointer',
               fontWeight: activeSection === s.id ? 500 : 400,
               transition: 'color 0.1s',
@@ -117,10 +117,10 @@ export default function Docs() {
         {/* Overview */}
         <Section id="overview" title="Overview">
           <Para>
-            Operon Intelligence is a Bloomberg Terminal-style complaint intelligence dashboard that ingests, classifies,
-            and visualises consumer financial complaints from the CFPB (Consumer Financial Protection Bureau)
-            public database. It provides real-time risk scoring, geographic analysis, enforcement tracking,
-            and institution benchmarking — all in a single command centre.
+            Operon Intelligence is a Bloomberg Terminal-style complaint intelligence platform for banks, lenders,
+            and fintech operators. It ingests complaints from internal channels and external signals, normalizes
+            them into one granular dataset, and drives real-time risk scoring, routing, explainability,
+            and supervisor oversight from a single command centre.
           </Para>
           <Para>
             When the live CFPB API is reachable, all charts and tables reflect real complaint data updated

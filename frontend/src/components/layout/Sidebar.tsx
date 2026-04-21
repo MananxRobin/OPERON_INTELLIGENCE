@@ -23,6 +23,7 @@ const GROUPS: NavGroup[] = [
       { to: '/analyze',    label: 'Analyze' },
       { to: '/triage',     label: 'Triage' },
       { to: '/supervisor', label: 'Supervisor' },
+      { to: '/lookup',     label: 'Look-up' },
       { to: '/complaints', label: 'Complaints' },
       { to: '/audit',      label: 'Audit Trail' },
     ],
@@ -70,10 +71,21 @@ export function Sidebar() {
         height: 44, display: 'flex', alignItems: 'center', padding: '0 18px',
         borderBottom: '1px solid var(--border)', flexShrink: 0,
       }}>
+        <img
+          src="/operon-logo.png"
+          alt="Operon"
+          style={{
+            width: 26,
+            height: 26,
+            objectFit: 'contain',
+            marginRight: 10,
+            filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.18))',
+          }}
+        />
         <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--primary)', letterSpacing: '-0.02em' }}>
           OPERON
         </span>
-        <span style={{ marginLeft: 6, fontSize: 8, fontFamily: 'monospace', color: 'var(--muted-3)', letterSpacing: '0.10em' }}>
+        <span style={{ marginLeft: 6, fontSize: 8, fontFamily: 'monospace', fontWeight: 600, color: 'var(--sub)', letterSpacing: '0.10em' }}>
           INTELLIGENCE
         </span>
       </div>

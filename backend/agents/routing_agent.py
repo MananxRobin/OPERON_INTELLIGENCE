@@ -1,6 +1,8 @@
 """
 Routing Agent — Assigns complaints to appropriate internal teams with priority.
 """
+from typing import Any
+
 from backend.agents.base_agent import BaseAgent
 
 
@@ -136,3 +138,22 @@ METADATA:
 
 Determine the best team, agent tier, priority level, and SLA.
 Provide an escalation path if needed."""
+
+    def normalize_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        result["assigned_team"] = str(result.get("assigned_team", "Customer Retention Team"))
+        result["assigned_tier"] = str(result.get("assigned_tier", "Senior"))
+        result["priority"] = str(result.get("priority", "P3_MEDIUM"))
+        try:
+            result["sla_hours"] = int(float(result.get("sla_hours", 48)))
+        except (TypeError, ValueError):
+            result["sla_hours"] = 48
+        escalation = result.get("escalation_path", [])
+        if isinstance(escalation, list):
+            result["escalation_path"] = [str(item) for item in escalation]
+        elif isinstance(escalation, str):
+            result["escalation_path"] = [part.strip() for part in escalation.split("->") if part.strip()]
+        else:
+            result["escalation_path"] = []
+        result["requires_immediate_attention"] = bool(result.get("requires_immediate_attention", result["priority"] == "P1_IMMEDIATE"))
+        result["reasoning"] = str(result.get("reasoning", "Routing reasoning unavailable."))
+        return result

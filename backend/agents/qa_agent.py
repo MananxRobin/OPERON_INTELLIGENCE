@@ -1,6 +1,8 @@
 """
 QA/Validation Agent — Quality-checks all agent outputs before finalization.
 """
+from typing import Any
+
 from backend.agents.base_agent import BaseAgent
 
 
@@ -138,3 +140,38 @@ Customer Response Preview:
 Validate each aspect of this analysis against the original complaint.
 Check for accuracy, completeness, compliance, and quality.
 Be Critical — find problems, don't rubber-stamp."""
+
+    def normalize_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        try:
+            result["overall_score"] = float(result.get("overall_score", 0.8))
+        except (TypeError, ValueError):
+            result["overall_score"] = 0.8
+        result["passed"] = bool(result.get("passed", result["overall_score"] >= 0.8))
+        result["reasoning"] = str(result.get("reasoning", "QA reasoning unavailable."))
+
+        checks = result.get("checks", [])
+        normalized_checks: list[dict[str, Any]] = []
+        if isinstance(checks, list):
+            for index, item in enumerate(checks):
+                if isinstance(item, dict):
+                    normalized_checks.append({
+                        "check_name": str(item.get("check_name", f"Check {index + 1}")),
+                        "passed": bool(item.get("passed", False)),
+                        "details": str(item.get("details", "")),
+                    })
+                elif isinstance(item, str):
+                    normalized_checks.append({
+                        "check_name": f"Check {index + 1}",
+                        "passed": "pass" in item.lower(),
+                        "details": item,
+                    })
+        result["checks"] = normalized_checks
+
+        improvements = result.get("improvements", [])
+        if isinstance(improvements, list):
+            result["improvements"] = [str(item) for item in improvements]
+        elif isinstance(improvements, str):
+            result["improvements"] = [line.strip("- ").strip() for line in improvements.splitlines() if line.strip()]
+        else:
+            result["improvements"] = []
+        return result

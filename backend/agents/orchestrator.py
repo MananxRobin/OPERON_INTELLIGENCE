@@ -21,7 +21,7 @@ from backend.database import (
 class Orchestrator:
     """Coordinates the 5-agent pipeline for complaint analysis."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str = "deepseek-chat"):
         self.client = httpx.Client(
             base_url="https://api.deepseek.com/v1/",
             timeout=90.0,
@@ -30,11 +30,12 @@ class Orchestrator:
                 "Content-Type": "application/json",
             },
         )
-        self.classification_agent = ClassificationAgent(self.client)
-        self.compliance_agent = ComplianceRiskAgent(self.client)
-        self.routing_agent = RoutingAgent(self.client)
-        self.resolution_agent = ResolutionAgent(self.client)
-        self.qa_agent = QAAgent(self.client)
+        self.model = model
+        self.classification_agent = ClassificationAgent(self.client, model=self.model)
+        self.compliance_agent = ComplianceRiskAgent(self.client, model=self.model)
+        self.routing_agent = RoutingAgent(self.client, model=self.model)
+        self.resolution_agent = ResolutionAgent(self.client, model=self.model)
+        self.qa_agent = QAAgent(self.client, model=self.model)
 
         # Active processing state for SSE streaming
         self._active_jobs: dict[str, list[dict]] = {}

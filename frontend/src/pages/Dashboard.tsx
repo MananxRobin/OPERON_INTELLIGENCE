@@ -37,61 +37,42 @@ export default function Dashboard() {
     date_received_min: daysAgo(PERIOD_DAYS[period]),
   });
 
-  // Derive KPI stats from live CFPB rows when backend DB is empty
   const stats = useMemo(() => {
-    if (rawStats && (rawStats.total_complaints ?? 0) > 0) return rawStats;
-    if (rows.length === 0) return rawStats;
-    const today = new Date().toISOString().slice(0, 10);
+    if (rawStats && rawStats.total_complaints > 0) return rawStats;
+    if (!rows.length) return rawStats;
     const critical = rows.filter(r => r.risk === 'CRITICAL').length;
     const high     = rows.filter(r => r.risk === 'HIGH').length;
     const low      = rows.filter(r => r.risk === 'LOW').length;
     const untimely = rows.filter(r => r.untimely).length;
-    const timely   = rows.length - untimely;
     return {
-      total_complaints:         rows.length,
-      complaints_today:         rows.filter(r => r.date === today).length,
-      critical_risk_count:      critical,
-      high_risk_count:          high,
-      compliance_flags_caught:  critical + high,
-      auto_resolution_rate:     Math.round((low / rows.length) * 100),
-      timely_response_rate:     Math.round((timely / rows.length) * 100),
-      avg_resolution_time_hrs:  14.8,
-      needs_human_review_count:      critical,
-      high_regulatory_risk_count:    critical + high,
-      sla_breach_risk_count:         untimely,
-      product_distribution:     {},
-      severity_distribution:    {},
-      risk_distribution:        {},
-      team_distribution:        {},
-      source_breakdown:         {},
-    } as typeof rawStats;
+      total_complaints:            rows.length,
+      complaints_today:            rows.filter(r => r.date === new Date().toISOString().slice(0, 10)).length,
+      critical_risk_count:         critical,
+      high_risk_count:             high,
+      compliance_flags_caught:     critical + high,
+      auto_resolution_rate:        (low / rows.length) * 100,
+      timely_response_rate:        ((rows.length - untimely) / rows.length) * 100,
+      avg_resolution_time_hrs:     14.8,
+      needs_human_review_count:    critical,
+      high_regulatory_risk_count:  critical + high,
+      sla_breach_risk_count:       untimely,
+      product_distribution: {}, severity_distribution: {}, risk_distribution: {}, team_distribution: {}, source_breakdown: {},
+    };
   }, [rawStats, rows]);
 
-  // Derive trend data from CFPB rows when backend trends are empty
   const trends = useMemo(() => {
-    if (rawTrends && (rawTrends.complaints_over_time?.length ?? 0) > 0) return rawTrends;
-    if (rows.length === 0) return rawTrends;
+    if (rawTrends && rawTrends.complaints_over_time?.length) return rawTrends;
+    if (!rows.length) return rawTrends;
     const byDate: Record<string, number> = {};
     rows.forEach(r => { if (r.date) byDate[r.date] = (byDate[r.date] || 0) + 1; });
-    const complaints_over_time = Object.entries(byDate)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, count]) => ({ date: date.slice(5), count })); // MM-DD format
+    const complaints_over_time = Object.entries(byDate).sort().map(([d, c]) => ({ date: d.slice(5), count: c }));
     const byProduct: Record<string, number> = {};
     rows.forEach(r => { byProduct[r.product] = (byProduct[r.product] || 0) + 1; });
-    const product_breakdown = Object.entries(byProduct).sort((a,b) => b[1]-a[1]).slice(0,6).map(([name,value]) => ({ name, value }));
-    const riskCounts = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
-    rows.forEach(r => { riskCounts[r.risk] = (riskCounts[r.risk] || 0) + 1; });
-    const risk_breakdown = Object.entries(riskCounts).map(([name, value]) => ({ name, value }));
-    const criticality_breakdown = risk_breakdown;
-    return {
-      complaints_over_time,
-      product_breakdown,
-      severity_breakdown:  risk_breakdown,
-      risk_breakdown,
-      team_breakdown:      [],
-      criticality_breakdown,
-      baseline_divergence_breakdown: [],
-    } as typeof rawTrends;
+    const product_breakdown = Object.entries(byProduct).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([name,value])=>({ name, value }));
+    const rc: Record<string, number> = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
+    rows.forEach(r => { rc[r.risk] = (rc[r.risk] || 0) + 1; });
+    const risk_breakdown = Object.entries(rc).map(([name, value]) => ({ name, value }));
+    return { complaints_over_time, product_breakdown, severity_breakdown: risk_breakdown, risk_breakdown, team_breakdown: [], criticality_breakdown: risk_breakdown, baseline_divergence_breakdown: [] };
   }, [rawTrends, rows]);
 
   const recentReviewQueue = useMemo(
@@ -142,8 +123,8 @@ export default function Dashboard() {
     if (recentReviewQueue.length > 0) {
       return recentReviewQueue.map((complaint) => ({
         id: complaint.complaint_id,
-        title: `${complaint.product} · ${complaint.issue}`,
-        detail: complaint.review_reason_codes.map((reason) => reason.replaceAll('_', ' ').toLowerCase()).join(' · '),
+        title: `${complaint.product ?? 'Unknown'} · ${complaint.issue ?? 'No issue'}`,
+        detail: (complaint.review_reason_codes ?? []).map((reason) => (reason ?? '').replaceAll('_', ' ').toLowerCase()).join(' · '),
         risk: complaint.risk_level ?? 'HIGH',
         criticality: complaint.criticality_score ?? 0,
         link: `/complaints/${complaint.complaint_id}`,
@@ -156,7 +137,7 @@ export default function Dashboard() {
       .map((row) => ({
         id: row.id,
         title: `${row.product} · ${row.issue}`,
-        detail: [row.disputed ? 'consumer disputed' : null, row.untimely ? 'untimely response' : null, row.source.replaceAll('_', ' ')].filter(Boolean).join(' · '),
+        detail: [row.disputed ? 'consumer disputed' : null, row.untimely ? 'untimely response' : null, (row.source ?? '').replaceAll('_', ' ')].filter(Boolean).join(' · '),
         risk: row.risk,
         criticality: row.risk === 'CRITICAL' ? 82 : 64,
         link: '/live',

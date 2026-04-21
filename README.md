@@ -1,233 +1,227 @@
 # Operon Intelligence
 
-> Bloomberg Terminal-style financial complaint intelligence dashboard — CFPB data, real-time risk scoring, and a 5-agent AI pipeline powered by DeepSeek.
+Operon Intelligence is a complaint-operations platform for banks, fintechs, and lenders. It ingests complaints from multiple channels, normalizes them into one canonical dataset, analyzes them through an agentic workflow, routes them to internal teams, and exposes the full customer/ticket story through an operator dashboard.
 
----
+The current codebase is designed to support both demo mode and production-style local deployment:
 
-## What it does
+- synthetic data keeps the platform usable without live sources
+- scheduled CFPB ingestion runs every 4 hours by default
+- every complaint has one deterministic ticket id
+- customer history is available through the new `Look-up` workspace
+- the backend can serve the built frontend bundle for a simple single-process deployment
 
-- **Ingests** consumer financial complaints from the CFPB public API (4M+ records)
-- **Classifies** every complaint by risk level: CRITICAL / HIGH / MEDIUM / LOW
-- **Visualises** complaint trends, state heatmaps, institution rankings, and enforcement signals
-- **Falls back** automatically to a statistically-realistic synthetic pool when the CFPB API is unavailable — charts and KPIs work identically in both modes
-- **Processes** individual complaint narratives through a 5-agent DeepSeek pipeline: Classification → Compliance Risk → Routing → Resolution → QA Validation
+## Core capabilities
 
----
+- Unified complaint intake across phone, email, AI chat, forms, manual entry, normalized uploads, and CFPB ingestion
+- Deterministic complaint analysis pipeline with optional DeepSeek acceleration
+- Explainable routing, evidence support, baseline comparison, and supervisor review gates
+- Internal team handoff model with customer profile and account context
+- Customer and ticket lookup for internal operators
+- SQLite-backed schedules and run history
+- Dark and light themes with the existing Bloomberg-terminal-inspired shell
 
-## Project layout
+## Product pages
 
-```
+### Overview
+
+- `Synopsis`
+- `Live Feed`
+- `Explorer`
+- `Analysis`
+- `Enforcement Radar`
+- `Institution Monitor`
+
+### Agent
+
+- `Analyze`
+- `Triage`
+- `Supervisor`
+- `Look-up`
+- `Complaints`
+- `Audit Trail`
+
+## Repository structure
+
+```text
 Fin/
-├── frontend/               React 19 + Vite + TypeScript
-│   ├── src/
-│   │   ├── pages/          Route-level views (lazy-loaded)
-│   │   │   ├── Dashboard.tsx       Synopsis — command centre, default view
-│   │   │   ├── LiveFeed.tsx        Real-time CFPB stream + click-to-drawer
-│   │   │   ├── Explorer.tsx        Full-dataset search + filter table
-│   │   │   ├── Analysis.tsx        Temporal analysis: 1D / 7D / 1M / 3M
-│   │   │   ├── EnforcementRadar.tsx
-│   │   │   ├── InstitutionMonitor.tsx
-│   │   │   ├── Analyze.tsx         Submit complaint → AI pipeline (SSE stream)
-│   │   │   ├── Complaints.tsx      Browse AI-processed complaints
-│   │   │   ├── AuditTrail.tsx      Agent-by-agent decision log
-│   │   │   ├── Supervisor.tsx      Supervisor queue + review gate
-│   │   │   ├── Triage.tsx
-│   │   │   └── Docs.tsx            Full documentation + glossary
-│   │   ├── components/layout/      Sidebar (collapsible nav), Topbar
-│   │   ├── hooks/
-│   │   │   ├── useCfpbData.ts      CFPB API fetch → auto-fallback to synthetic pool
-│   │   │   ├── useSyntheticFeed.ts Seed 360 complaints + 600 CFPB-format on mount
-│   │   │   └── useBackendData.ts   Poll backend stats/complaints every 20s
-│   │   ├── store/index.ts          Zustand global state (theme, pool, stats)
-│   │   ├── data/synthetic.ts       generateCfpbPool(600) — weighted realistic data
-│   │   ├── services/
-│   │   │   ├── api.ts              Backend API client + fetchCfpbComplaints
-│   │   │   └── deepseek.ts         DeepSeek batch generator (proxied via Vite)
-│   │   ├── styles/globals.css      CSS design tokens — dark + light themes
-│   │   ├── constants.ts            RISK_COLORS, PALETTE (CSS var refs)
-│   │   └── App.tsx                 Router + lazy route definitions
-│   ├── .env                        Your API keys (gitignored)
-│   ├── .env.example                Template — copy to .env
-│   ├── vite.config.ts              Dev server + proxy rules
-│   └── package.json
-│
-├── backend/                FastAPI + DeepSeek AI pipeline
-│   ├── main.py             All REST + SSE endpoints
-│   ├── database.py         SQLite schema (auto-created on first run)
-│   ├── agents/
-│   │   ├── orchestrator.py         LangGraph pipeline coordinator
-│   │   ├── base_agent.py           Shared DeepSeek client + audit logging
-│   │   ├── classification_agent.py
-│   │   ├── compliance_agent.py
-│   │   ├── routing_agent.py
-│   │   ├── resolution_agent.py
-│   │   └── qa_agent.py
-│   ├── models/             Pydantic schemas
-│   ├── data/
-│   │   └── sample_complaints.py    30 seed complaints for batch demo
+├── backend/
+│   ├── main.py
+│   ├── database.py
 │   ├── requirements.txt
-│   ├── .env                        Your API keys (gitignored)
-│   └── .env.example                Template — copy to .env
-│
-├── Makefile                make install / make dev / make backend
-├── .env.example            Master reference — lists all variables across both services
-├── .gitignore
-└── README.md
+│   ├── requirements-dev.txt
+│   ├── agents/
+│   ├── data/
+│   ├── models/
+│   ├── services/
+│   │   ├── company_logic.py
+│   │   ├── intake.py
+│   │   ├── local_pipeline.py
+│   │   ├── lookup.py
+│   │   └── ticketing.py
+│   └── tests/
+├── frontend/
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── vitest.config.ts
+│   ├── public/
+│   └── src/
+│       ├── components/
+│       ├── hooks/
+│       ├── pages/
+│       ├── services/
+│       ├── store/
+│       └── utils/
+├── docs/
+├── scripts/
+├── Makefile
+├── LICENSE
+└── pytest.ini
 ```
 
----
+## Quick start
 
-## Quick start (copy-paste ready)
-
-### Step 1 — Clone and enter the project
+### 1. Bootstrap everything
 
 ```bash
-git clone https://github.com/premalshah999/OPERON.git && cd OPERON
+./scripts/bootstrap.sh
 ```
 
-### Step 2 — Set up environment files
+This will:
 
-```bash
-make env
-# Creates frontend/.env and backend/.env from the .env.example templates
-```
+- create `frontend/.env` and `backend/.env` if missing
+- install frontend dependencies
+- create the backend virtualenv
+- install backend runtime and test dependencies
 
-Then open both files and add your key:
+### 2. Configure environment variables
 
-**`frontend/.env`**
+#### `frontend/.env`
+
 ```env
 VITE_DEEPSEEK_API_KEY=sk-your-deepseek-key
 ```
 
-**`backend/.env`**
+#### `backend/.env`
+
 ```env
 DEEPSEEK_API_KEY=sk-your-deepseek-key
+DEEPSEEK_MODEL=deepseek-chat
 ```
 
-> Both services use the same DeepSeek key.  
-> Get one at https://platform.deepseek.com (free tier available).
+Optional backend overrides:
 
-### Step 3 — Install dependencies
+```env
+OPERON_DB_PATH=/absolute/path/to/operon.db
+OPERON_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+OPERON_DISABLE_SCHEDULER=0
+OPERON_ENABLE_STARTUP_INGEST=0
+```
+
+Startup ingest is opt-in. The persisted 4-hour CFPB schedule is enabled by default, but the backend does not fire an eager live ingest during boot unless `OPERON_ENABLE_STARTUP_INGEST=1`.
+
+### 3. Start development servers
+
+Frontend:
 
 ```bash
-make install
-# Runs: npm install in frontend/ + python3 -m venv + pip install in backend/
+./scripts/dev-frontend.sh
 ```
 
-### Step 4 — Start the frontend
+Backend:
 
 ```bash
-make dev
-# → http://localhost:5173
+./scripts/dev-backend.sh
 ```
 
-The dashboard works immediately — no backend required. All CFPB data views populate from the live CFPB API or the synthetic fallback pool.
+Default URLs:
 
-### Step 5 — Start the backend (enables AI Agent views)
+- frontend: `http://localhost:5173`
+- backend: `http://localhost:8000`
 
-Open a second terminal:
+## Production-style local run
+
+Build and run the single-serve deployment:
 
 ```bash
-make backend
-# → http://localhost:8000
+./scripts/test.sh
+./scripts/build.sh
+./scripts/run-prod.sh
 ```
 
-This enables the **Agent** sidebar group: Analyze, Complaints, Audit Trail, Supervisor, Triage.
+In this mode FastAPI serves:
 
----
+- `/api/*` for backend endpoints
+- the built React bundle for all non-API routes
 
-## Environment variables
+## Scripts
 
-| File | Variable | Required | Purpose |
-|---|---|---|---|
-| `frontend/.env` | `VITE_DEEPSEEK_API_KEY` | Recommended | Refreshes synthetic complaint pool every 10 min via DeepSeek |
-| `backend/.env` | `DEEPSEEK_API_KEY` | For Agent views | Powers the 5-agent AI analysis pipeline |
+- `./scripts/bootstrap.sh`
+- `./scripts/dev-frontend.sh`
+- `./scripts/dev-backend.sh`
+- `./scripts/test.sh`
+- `./scripts/build.sh`
+- `./scripts/run-prod.sh`
+- `./scripts/deploy.sh`
 
-Without `VITE_DEEPSEEK_API_KEY`: synthetic pool is static (seeded at startup, 600 complaints).  
-Without `DEEPSEEK_API_KEY`: Agent views return errors; all CFPB data views still work.
+Equivalent `make` targets are available:
 
----
+- `make bootstrap`
+- `make install`
+- `make dev`
+- `make backend`
+- `make test`
+- `make build`
+- `make deploy`
 
-## How data flows
+## Test coverage
 
+### Backend
+
+- complaint detail contract
+- customer lookup API
+- ticket generation
+- default schedule presence
+
+### Frontend
+
+- customer lookup shaping
+- lookup search filtering
+- grouped customer history shaping
+
+Run all tests:
+
+```bash
+./scripts/test.sh
 ```
-Browser
-  │
-  ├── useCfpbData hook
-  │     ├─ 1. Try: GET /api/cfpb?size=250  (Vite proxies → consumerfinance.gov)
-  │     └─ 2. Fallback: Zustand syntheticCfpbPool (600 complaints, local)
-  │
-  ├── useSyntheticFeed hook (runs once on mount)
-  │     ├─ Seeds 360 complaints into processedComplaints
-  │     ├─ Seeds syntheticCfpbPool with 600 CFPB-format records
-  │     └─ Every 10 min: calls DeepSeek via /api/deepseek proxy → adds 50 new entries
-  │
-  └── useBackendData hook (polls every 20s)
-        └─ GET /api/dashboard/stats → populates backend KPI cards if AI pipeline has data
 
-Vite proxy rules:
-  /api/cfpb/*      → https://www.consumerfinance.gov/data-research/consumer-complaints/search/api/v1
-  /api/deepseek/*  → https://api.deepseek.com
-  /api/*           → http://127.0.0.1:8000  (FastAPI backend)
-```
+## API highlights
 
----
+- `GET /api/health`
+- `GET /api/complaints`
+- `GET /api/complaints/{complaint_id}`
+- `POST /api/complaints/analyze`
+- `POST /api/complaints/analyze/sync`
+- `GET /api/audit/{complaint_id}`
+- `GET /api/dashboard/stats`
+- `GET /api/dashboard/trends`
+- `GET /api/dashboard/supervisor`
+- `GET /api/internal-teams`
+- `GET /api/intake/preview`
+- `POST /api/normalize/preview`
+- `POST /api/normalize/submit`
+- `GET /api/schedules`
+- `POST /api/schedules`
+- `POST /api/schedules/{id}/run`
+- `GET /api/lookup`
+- `GET /api/lookup/customers/{customer_id}`
 
-## Risk scoring
+## Documentation
 
-| Level | Trigger |
-|---|---|
-| **CRITICAL** | Untimely company response OR consumer disputed the resolution |
-| **HIGH** | Closed without relief / still in progress past 15-day SLA |
-| **MEDIUM** | Closed with non-monetary relief only |
-| **LOW** | Closed with full monetary relief — consumer satisfied |
+- [Architecture](docs/architecture.md)
+- [Frontend Reference](docs/frontend.md)
+- [Testing](docs/testing.md)
+- [Deployment](docs/deployment.md)
 
-**Institution Risk Score** = `(critRate × 0.50) + (untimelyRate × 0.30) + (disputeRate × 0.20)`
+## Open-source license
 
----
-
-## Backend API reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET | `/api/health` | Health check |
-| GET | `/api/complaints` | List processed complaints — filterable by product, risk, state |
-| POST | `/api/complaints/analyze` | Submit narrative for async AI analysis |
-| GET | `/api/complaints/analyze/{id}/stream` | SSE stream of real-time agent progress |
-| POST | `/api/complaints/analyze/sync` | Synchronous analysis (waits for result) |
-| GET | `/api/complaints/{id}` | Full analysis for one complaint |
-| GET | `/api/audit/{id}` | Agent-by-agent audit trail |
-| GET | `/api/dashboard/stats` | Aggregate KPIs |
-| GET | `/api/dashboard/trends?days=14` | Volume trend data |
-| GET | `/api/dashboard/supervisor` | Supervisor queue signals |
-| POST | `/api/complaints/batch` | Batch-process sample complaints |
-
----
-
-## Theming
-
-Toggle dark/light with the **LIGHT / DARK** button in the top bar.  
-All colors are CSS custom properties — zero hardcoded hex anywhere in the component tree.
-
-| Token | Dark | Light |
-|---|---|---|
-| `--bg` | `#0A0A0A` | `#f5f1ea` |
-| `--primary` | `#F0EDE8` | `#181410` |
-| `--accent` | `#E8433A` | `#cf4336` |
-| `--success` | `#4CAF50` | `#2c8e49` |
-
----
-
-## Tech stack
-
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, TypeScript, Vite 8 |
-| State | Zustand v5 |
-| Routing | React Router v7 (lazy-loaded routes) |
-| Charts | Recharts v3 |
-| Styling | CSS custom properties (dark + light) |
-| Backend | FastAPI, SQLite via aiosqlite |
-| AI Pipeline | DeepSeek `deepseek-chat` (OpenAI-compatible API) |
-| Synthetic Feed | DeepSeek `deepseek-chat` (via Vite proxy) |
-| Data Source | CFPB Consumer Complaint Database — public API |
+This repository is released under the MIT License. See [LICENSE](LICENSE).

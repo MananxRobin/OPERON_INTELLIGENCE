@@ -13,6 +13,7 @@ const Analysis           = lazy(() => import('./pages/Analysis'));
 const Explorer           = lazy(() => import('./pages/Explorer'));
 const Triage             = lazy(() => import('./pages/Triage'));
 const Supervisor         = lazy(() => import('./pages/Supervisor'));
+const Lookup             = lazy(() => import('./pages/Lookup'));
 const Docs               = lazy(() => import('./pages/Docs'));
 
 function Spinner() {
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/explorer"     element={<Suspense fallback={<Spinner />}><Explorer /></Suspense>} />
           <Route path="/triage"       element={<Suspense fallback={<Spinner />}><Triage /></Suspense>} />
           <Route path="/supervisor"   element={<Suspense fallback={<Spinner />}><Supervisor /></Suspense>} />
+          <Route path="/lookup"       element={<Suspense fallback={<Spinner />}><Lookup /></Suspense>} />
           <Route path="/docs"         element={<Suspense fallback={<Spinner />}><Docs /></Suspense>} />
         </Route>
       </Routes>

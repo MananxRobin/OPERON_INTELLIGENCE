@@ -39,7 +39,7 @@ function ComplaintDrawer({ row, onClose }: { row: SyntheticCfpbRow; onClose: () 
             <span style={{ fontSize: 11, fontWeight: 700, color: row.risk === 'CRITICAL' ? 'var(--accent)' : 'var(--secondary)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               {row.risk} Risk
             </span>
-            <span className="badge badge-gray">{row.source.replaceAll('_', ' ')}</span>
+            <span className="badge badge-gray">{(row.source ?? '').replaceAll('_', ' ')}</span>
           </div>
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -215,7 +215,7 @@ export default function LiveFeed() {
               runs.map((run) => (
                 <div key={run.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
                   <div>
-                    <div style={{ fontSize: 10, color: 'var(--primary)' }}>{run.mode.toUpperCase()} · {run.triggered_by}</div>
+                    <div style={{ fontSize: 10, color: 'var(--primary)' }}>{(run.mode ?? '').toUpperCase()} · {run.triggered_by}</div>
                     <div style={{ fontSize: 10, color: 'var(--text-weak)' }}>{run.started_at.replace('T', ' ').slice(0, 16)}</div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
@@ -320,7 +320,7 @@ export default function LiveFeed() {
                   <td>{row.company}</td>
                   <td style={{ color: 'var(--text-weak)' }}>{row.state}</td>
                   <td style={{ color: row.risk === 'CRITICAL' ? 'var(--accent)' : row.risk === 'HIGH' ? 'var(--secondary)' : 'var(--text-weak)' }}>{row.risk}</td>
-                  <td style={{ color: 'var(--text-faint)' }}>{row.source.replaceAll('_', ' ')}</td>
+                  <td style={{ color: 'var(--text-faint)' }}>{(row.source ?? '').replaceAll('_', ' ')}</td>
                 </tr>
               ))}
             </tbody>

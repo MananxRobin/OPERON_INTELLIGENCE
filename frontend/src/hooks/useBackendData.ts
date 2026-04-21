@@ -17,13 +17,11 @@ export function useBackendData() {
         const [stats, trends, complaints, samples] = await Promise.all([
           api.stats(),
           api.trends(14),
-          api.complaints(50),
+          api.complaints(200),
           api.samples(),
         ]);
 
-        // Only overwrite synthetic data if the backend has actually processed complaints.
-        // An empty DB returns total_complaints=0 — we don't want to wipe the synthetic seed.
-        const hasRealData = (stats?.total_complaints ?? 0) > 0;
+        const hasRealData = (complaints?.total ?? 0) > 0;
         store().set({
           sampleComplaints: samples.samples ?? [],
           lastSync: new Date(),
@@ -44,9 +42,9 @@ export function useBackendData() {
     const poll = setInterval(async () => {
       try {
         const [stats, trends, complaints] = await Promise.all([
-          api.stats(), api.trends(14), api.complaints(50),
+          api.stats(), api.trends(14), api.complaints(200),
         ]);
-        const hasRealData = (stats?.total_complaints ?? 0) > 0;
+        const hasRealData = (complaints?.total ?? 0) > 0;
         store().set({
           backendConnected: true,
           lastSync: new Date(),

@@ -1,13 +1,20 @@
+from __future__ import annotations
+
 """
 SQLite database setup and query helpers for the complaint categorization system.
 """
-import sqlite3
 import json
 import os
+import sqlite3
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "complaints.db")
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(__file__), "complaints.db")
+
+
+def get_db_path() -> str:
+    """Resolve the active SQLite path, overridable for tests and deployments."""
+    return os.getenv("OPERON_DB_PATH", DEFAULT_DB_PATH)
 
 
 def _loads_json(value, default):
@@ -27,7 +34,7 @@ def _latest_analysis_join() -> str:
             SELECT ar2.id
             FROM analysis_results ar2
             WHERE ar2.complaint_id = c.complaint_id
-            ORDER BY ar2.created_at DESC, ar2.id DESC
+            ORDER BY ar2.id DESC
             LIMIT 1
         )
     """
@@ -35,9 +42,9 @@ def _latest_analysis_join() -> str:
 
 def get_connection():
     """Get a database connection with row factory."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path(), timeout=15)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -45,6 +52,7 @@ def init_db():
     """Initialize database tables."""
     conn = get_connection()
     cursor = conn.cursor()
+    cursor.execute("PRAGMA journal_mode=WAL")
 
     cursor.executescript("""
         CREATE TABLE IF NOT EXISTS complaints (
@@ -91,7 +99,42 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_complaints_status ON complaints(status);
         CREATE INDEX IF NOT EXISTS idx_complaints_date ON complaints(date_received);
+        CREATE INDEX IF NOT EXISTS idx_complaints_customer ON complaints(customer_id);
+        CREATE INDEX IF NOT EXISTS idx_complaints_channel ON complaints(channel);
+        CREATE INDEX IF NOT EXISTS idx_analysis_results_complaint_latest ON analysis_results(complaint_id, id DESC);
         CREATE INDEX IF NOT EXISTS idx_audit_complaint ON audit_logs(complaint_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_complaint_timestamp ON audit_logs(complaint_id, timestamp ASC);
+
+        CREATE TABLE IF NOT EXISTS schedules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            cadence TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            payload TEXT DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'active',
+            next_run_at TEXT,
+            last_run_at TEXT,
+            last_run_count INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS schedule_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            schedule_id INTEGER NOT NULL,
+            mode TEXT NOT NULL,
+            triggered_by TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'running',
+            result_summary TEXT DEFAULT '{}',
+            processed_count INTEGER NOT NULL DEFAULT 0,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_schedules_status_next_run ON schedules(status, next_run_at);
+        CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule_id ON schedule_runs(schedule_id, started_at DESC);
     """)
 
     conn.commit()
@@ -105,16 +148,44 @@ def save_complaint(complaint_id: str, narrative: str, product: Optional[str],
     """Save a new complaint to the database."""
     conn = get_connection()
     conn.execute(
-        """INSERT OR REPLACE INTO complaints
+        """INSERT INTO complaints
            (complaint_id, narrative, product, channel, customer_state,
             customer_id, date_received, tags, status, submitted_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
+           ON CONFLICT(complaint_id) DO UPDATE SET
+             narrative = excluded.narrative,
+             product = excluded.product,
+             channel = excluded.channel,
+             customer_state = excluded.customer_state,
+             customer_id = COALESCE(excluded.customer_id, complaints.customer_id),
+             date_received = COALESCE(excluded.date_received, complaints.date_received),
+             tags = excluded.tags
+        """,
         (complaint_id, narrative, product, channel, customer_state,
          customer_id, date_received, json.dumps(tags),
          datetime.utcnow().isoformat())
     )
     conn.commit()
     conn.close()
+
+
+def complaint_exists(complaint_id: str) -> bool:
+    """Return True when a complaint already exists in the database."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT 1 FROM complaints WHERE complaint_id = ? LIMIT 1",
+        (complaint_id,),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def count_complaints() -> int:
+    """Return the total complaint count."""
+    conn = get_connection()
+    row = conn.execute("SELECT COUNT(*) AS count FROM complaints").fetchone()
+    conn.close()
+    return int(row["count"]) if row else 0
 
 
 def update_complaint_status(complaint_id: str, status: str):
@@ -184,7 +255,7 @@ def get_complaint(complaint_id: str) -> Optional[dict]:
     complaint["tags"] = _loads_json(complaint.get("tags"), [])
 
     analysis = conn.execute(
-        "SELECT * FROM analysis_results WHERE complaint_id = ? ORDER BY created_at DESC LIMIT 1",
+        "SELECT * FROM analysis_results WHERE complaint_id = ? ORDER BY id DESC LIMIT 1",
         (complaint_id,)
     ).fetchone()
     analysis_data = dict(analysis) if analysis else {}
@@ -223,7 +294,13 @@ def get_all_complaints(limit: int = 100, offset: int = 0) -> list[dict]:
                   ar.routing_result, ar.qa_result, ar.total_processing_time_ms
            FROM complaints c
            {_latest_analysis_join()}
-           ORDER BY c.submitted_at DESC
+           ORDER BY
+             CASE
+               WHEN c.status = 'analyzed' THEN 0
+               WHEN c.status = 'processing' THEN 1
+               ELSE 2
+             END,
+             c.submitted_at DESC
            LIMIT ? OFFSET ?""",
         (limit, offset)
     ).fetchall()
@@ -422,3 +499,240 @@ def get_dashboard_trends(limit_days: int = 14) -> dict:
             for product, bucket in sorted(resolution_time_by_product.items(), key=lambda item: item[0])
         ],
     }
+
+
+def _parse_schedule(row: sqlite3.Row | None) -> Optional[dict]:
+    if not row:
+        return None
+    item = dict(row)
+    item["payload"] = _loads_json(item.get("payload"), {})
+    return item
+
+
+def _parse_schedule_run(row: sqlite3.Row | None) -> Optional[dict]:
+    if not row:
+        return None
+    item = dict(row)
+    item["result_summary"] = _loads_json(item.get("result_summary"), {})
+    return item
+
+
+def list_schedules(limit: int = 100, offset: int = 0) -> list[dict]:
+    """Return persisted schedules ordered by most recently updated."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM schedules
+        ORDER BY updated_at DESC, id DESC
+        LIMIT ? OFFSET ?
+        """,
+        (limit, offset),
+    ).fetchall()
+    conn.close()
+    return [_parse_schedule(row) for row in rows]
+
+
+def get_schedule(schedule_id: int) -> Optional[dict]:
+    """Return a single schedule by id."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM schedules WHERE id = ?",
+        (schedule_id,),
+    ).fetchone()
+    conn.close()
+    return _parse_schedule(row)
+
+
+def get_schedule_by_name(name: str) -> Optional[dict]:
+    """Return a single schedule by its unique display name."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM schedules WHERE name = ? ORDER BY id DESC LIMIT 1",
+        (name,),
+    ).fetchone()
+    conn.close()
+    return _parse_schedule(row)
+
+
+def create_schedule(
+    name: str,
+    mode: str,
+    cadence: str,
+    source_type: str,
+    payload: dict[str, Any],
+    status: str = "active",
+    next_run_at: Optional[str] = None,
+) -> dict:
+    """Persist a new schedule definition and return it."""
+    now = datetime.utcnow().isoformat()
+    conn = get_connection()
+    cursor = conn.execute(
+        """
+        INSERT INTO schedules
+        (name, mode, cadence, source_type, payload, status, next_run_at, last_run_at, last_run_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)
+        """,
+        (name, mode, cadence, source_type, json.dumps(payload or {}), status, next_run_at, now, now),
+    )
+    schedule_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return get_schedule(schedule_id)
+
+
+def update_schedule(
+    schedule_id: int,
+    *,
+    name: Optional[str] = None,
+    cadence: Optional[str] = None,
+    payload: Optional[dict[str, Any]] = None,
+    status: Optional[str] = None,
+    next_run_at: Optional[str] = None,
+    last_run_at: Optional[str] = None,
+    last_run_count: Optional[int] = None,
+) -> Optional[dict]:
+    """Update a schedule definition and return the fresh row."""
+    fields: list[str] = []
+    values: list[Any] = []
+
+    if name is not None:
+        fields.append("name = ?")
+        values.append(name)
+    if cadence is not None:
+        fields.append("cadence = ?")
+        values.append(cadence)
+    if payload is not None:
+        fields.append("payload = ?")
+        values.append(json.dumps(payload))
+    if status is not None:
+        fields.append("status = ?")
+        values.append(status)
+    if next_run_at is not None:
+        fields.append("next_run_at = ?")
+        values.append(next_run_at)
+    if last_run_at is not None:
+        fields.append("last_run_at = ?")
+        values.append(last_run_at)
+    if last_run_count is not None:
+        fields.append("last_run_count = ?")
+        values.append(last_run_count)
+
+    fields.append("updated_at = ?")
+    values.append(datetime.utcnow().isoformat())
+    values.append(schedule_id)
+
+    conn = get_connection()
+    conn.execute(
+        f"UPDATE schedules SET {', '.join(fields)} WHERE id = ?",
+        values,
+    )
+    conn.commit()
+    conn.close()
+    return get_schedule(schedule_id)
+
+
+def delete_schedule(schedule_id: int) -> bool:
+    """Delete a schedule and its historical runs."""
+    conn = get_connection()
+    conn.execute("DELETE FROM schedule_runs WHERE schedule_id = ?", (schedule_id,))
+    cursor = conn.execute("DELETE FROM schedules WHERE id = ?", (schedule_id,))
+    deleted = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def get_due_schedules(now_iso: str) -> list[dict]:
+    """Return all active schedules whose next_run_at is due."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM schedules
+        WHERE status = 'active'
+          AND next_run_at IS NOT NULL
+          AND next_run_at <= ?
+        ORDER BY next_run_at ASC, id ASC
+        """,
+        (now_iso,),
+    ).fetchall()
+    conn.close()
+    return [_parse_schedule(row) for row in rows]
+
+
+def create_schedule_run(schedule_id: int, mode: str, triggered_by: str) -> int:
+    """Create a schedule run row in running state and return its id."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """
+        INSERT INTO schedule_runs
+        (schedule_id, mode, triggered_by, status, result_summary, processed_count, started_at, completed_at)
+        VALUES (?, ?, ?, 'running', '{}', 0, ?, NULL)
+        """,
+        (schedule_id, mode, triggered_by, datetime.utcnow().isoformat()),
+    )
+    run_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return run_id
+
+
+def complete_schedule_run(
+    run_id: int,
+    *,
+    status: str,
+    processed_count: int,
+    result_summary: dict[str, Any],
+) -> Optional[dict]:
+    """Finish a schedule run and return the updated row."""
+    completed_at = datetime.utcnow().isoformat()
+    conn = get_connection()
+    conn.execute(
+        """
+        UPDATE schedule_runs
+        SET status = ?, processed_count = ?, result_summary = ?, completed_at = ?
+        WHERE id = ?
+        """,
+        (status, processed_count, json.dumps(result_summary or {}), completed_at, run_id),
+    )
+    conn.commit()
+    row = conn.execute("SELECT * FROM schedule_runs WHERE id = ?", (run_id,)).fetchone()
+    conn.close()
+    return _parse_schedule_run(row)
+
+
+def list_schedule_runs(schedule_id: int, limit: int = 20) -> list[dict]:
+    """Return recent run history for a schedule."""
+    conn = get_connection()
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM schedule_runs
+        WHERE schedule_id = ?
+        ORDER BY started_at DESC, id DESC
+        LIMIT ?
+        """,
+        (schedule_id, limit),
+    ).fetchall()
+    conn.close()
+    return [_parse_schedule_run(row) for row in rows]
+
+
+def fail_running_schedule_runs() -> int:
+    """Mark orphaned running schedule runs as failed during startup."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """
+        UPDATE schedule_runs
+        SET status = 'failed',
+            result_summary = ?,
+            completed_at = ?
+        WHERE status = 'running'
+        """,
+        (json.dumps({"error": "Marked failed during startup recovery"}), datetime.utcnow().isoformat()),
+    )
+    count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return count

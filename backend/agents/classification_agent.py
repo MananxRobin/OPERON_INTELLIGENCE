@@ -1,6 +1,8 @@
 """
 Classification Agent — Classifies complaints by product, issue, severity, and sentiment.
 """
+from typing import Any
+
 from backend.agents.base_agent import BaseAgent
 
 
@@ -122,3 +124,36 @@ METADATA:{meta_str if meta_str else " None provided"}
 Classify this complaint by product, issue type, severity, sentiment, and urgency.
 Extract all key entities (dollar amounts, dates, account details).
 Provide detailed reasoning for your classification."""
+
+    def normalize_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        result["severity"] = str(result.get("severity", "MEDIUM")).upper()
+        result["product"] = str(result.get("product", "Unknown"))
+        result["sub_product"] = str(result.get("sub_product", result["product"]))
+        result["issue"] = str(result.get("issue", "General complaint"))
+        result["sub_issue"] = str(result.get("sub_issue", result["issue"]))
+        result["urgency"] = str(result.get("urgency", "Moderate"))
+        result["reasoning"] = str(result.get("reasoning", "Classification reasoning unavailable."))
+
+        try:
+            result["sentiment_score"] = float(result.get("sentiment_score", 0))
+        except (TypeError, ValueError):
+            result["sentiment_score"] = 0.0
+        try:
+            result["confidence"] = float(result.get("confidence", 0.75))
+        except (TypeError, ValueError):
+            result["confidence"] = 0.75
+
+        key_entities = result.get("key_entities", [])
+        normalized_entities: list[str] = []
+        if isinstance(key_entities, list):
+            for item in key_entities:
+                if isinstance(item, str):
+                    normalized_entities.append(item)
+                elif isinstance(item, dict):
+                    value = item.get("value") or item.get("text") or item.get("entity")
+                    if value:
+                        normalized_entities.append(str(value))
+        elif isinstance(key_entities, str):
+            normalized_entities = [key_entities]
+        result["key_entities"] = normalized_entities[:8]
+        return result

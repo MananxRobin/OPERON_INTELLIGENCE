@@ -6,6 +6,7 @@ import asyncio
 import json
 import time
 from abc import ABC, abstractmethod
+from typing import Any
 import httpx
 from backend.database import save_audit_log
 
@@ -38,6 +39,10 @@ class BaseAgent(ABC):
     def build_user_message(self, **kwargs) -> str:
         """Build the user message for this agent. Override in subclasses."""
         raise NotImplementedError
+
+    def normalize_result(self, result: dict) -> dict:
+        """Coerce model output into the expected shape for downstream agents."""
+        return result
 
     async def run(self, complaint_id: str, **kwargs) -> dict:
         """
@@ -86,34 +91,58 @@ class BaseAgent(ABC):
 
     def _request_structured_output(self, user_message: str) -> dict:
         """Call DeepSeek chat completions with JSON output mode."""
+        schema = self.output_tool.get("input_schema", {})
+        expected_keys = list((schema.get("properties") or {}).keys())
+        expected_hint = ", ".join(expected_keys)
+
+        system_prompt = (
+            f"{self.system_prompt}\n\n"
+            "Return only one valid JSON object as the final answer. "
+            "Do not use markdown fences. "
+            f"The JSON object must include these keys: {expected_hint}."
+        )
+        user_prompt = (
+            f"{user_message}\n\n"
+            "Output format requirement: respond with a JSON object only."
+        )
+
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": user_message},
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
             "response_format": {"type": "json_object"},
-            "temperature": 0.1,
+            "max_tokens": 8192,
         }
+        if self.model != "deepseek-reasoner":
+            payload["temperature"] = 0.1
 
-        response = self.client.post("chat/completions", json=payload)
-        response.raise_for_status()
-        data = response.json()
+        last_error: Exception | None = None
+        for _ in range(2):
+            try:
+                response = self.client.post("chat/completions", json=payload)
+                response.raise_for_status()
+                data = response.json()
 
-        choices = data.get("choices", [])
-        if not choices:
-            raise ValueError(f"No choices returned from {self.agent_name}")
+                choices = data.get("choices", [])
+                if not choices:
+                    raise ValueError(f"No choices returned from {self.agent_name}")
 
-        content = choices[0].get("message", {}).get("content", "")
-        if not content:
-            raise ValueError(f"No content returned from {self.agent_name}")
+                message: dict[str, Any] = choices[0].get("message", {}) or {}
+                content = message.get("content", "")
+                if not content:
+                    raise ValueError(f"No content returned from {self.agent_name}")
 
-        # Strip accidental markdown fences
-        cleaned = content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                cleaned = content.strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
 
-        return json.loads(cleaned)
+                return self.normalize_result(json.loads(cleaned))
+            except Exception as exc:
+                last_error = exc
+
+        raise ValueError(f"{self.agent_name} failed to return valid JSON: {last_error}")
 
     def _to_strict_json_schema(self, schema: dict) -> dict:
         """Recursively adapt a JSON schema to OpenAI Structured Outputs strict mode."""

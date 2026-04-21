@@ -3,7 +3,7 @@
 #  Run `make help` to see available commands.
 # ═══════════════════════════════════════════════════════════════════
 
-.PHONY: help install install-frontend install-backend dev frontend backend env clean
+.PHONY: help bootstrap install install-frontend install-backend dev frontend backend env test build deploy clean
 
 # ── Default target ───────────────────────────────────────────────
 help:
@@ -11,11 +11,18 @@ help:
 	@echo "  Operon Intelligence"
 	@echo ""
 	@echo "  make install      Install all dependencies (frontend + backend)"
+	@echo "  make bootstrap    Create env files and install everything"
 	@echo "  make env          Copy .env.example files to .env (first-time setup)"
 	@echo "  make dev          Start frontend dev server  →  http://localhost:5173"
 	@echo "  make backend      Start backend API server   →  http://localhost:8000"
+	@echo "  make test         Run backend pytest + frontend vitest"
+	@echo "  make build        Build production assets"
+	@echo "  make deploy       Bootstrap, test, and build the production bundle"
 	@echo "  make clean        Remove build artifacts and Python cache"
 	@echo ""
+
+bootstrap:
+	./scripts/bootstrap.sh
 
 # ── Environment setup ────────────────────────────────────────────
 env:
@@ -30,14 +37,23 @@ install-frontend:
 	cd frontend && npm install
 
 install-backend:
-	cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+	cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 
 # ── Run ──────────────────────────────────────────────────────────
 dev:
-	cd frontend && npm run dev
+	./scripts/dev-frontend.sh
 
 backend:
-	PYTHONPATH=. backend/.venv/bin/python3 -m uvicorn backend.main:app --port 8000 --reload
+	./scripts/dev-backend.sh
+
+test:
+	./scripts/test.sh
+
+build:
+	./scripts/build.sh
+
+deploy:
+	./scripts/deploy.sh
 
 # ── Clean ────────────────────────────────────────────────────────
 clean:

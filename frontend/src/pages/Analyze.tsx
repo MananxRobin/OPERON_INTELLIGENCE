@@ -21,7 +21,8 @@ type AgentStatus = 'pending' | 'running' | 'completed' | 'failed';
 type ResultTab = 'action' | 'response' | 'comparison' | 'classification' | 'compliance';
 type IntakeMode = 'manual' | 'normalize';
 
-function formatReason(code: string) {
+function formatReason(code: string | null | undefined) {
+  if (!code) return '';
   return code.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
@@ -175,6 +176,9 @@ export default function Analyze() {
         <h1 style={{ fontSize: 16, fontWeight: 600, color: 'var(--primary)', letterSpacing: '-0.02em' }}>Analyze Complaint</h1>
         <p style={{ fontSize: 11, color: 'var(--text-weak)', marginTop: 3 }}>
           Run the 5-agent workflow, watch each specialist update live, and review the final resolution package
+        </p>
+        <p style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 6 }}>
+          DeepSeek Chat is enabled for the live analysis path so demo runs complete much faster while still streaming each agent update.
         </p>
       </div>
 
