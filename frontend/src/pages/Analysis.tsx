@@ -4,7 +4,6 @@ import { Area, AreaChart, Bar, BarChart, Cell, ComposedChart, Line, Tooltip, XAx
 
 import { ACCENT, PALETTE } from '../constants';
 import { api } from '../services/api';
-import { syntheticAnalysis } from '../services/syntheticAnalysis';
 import { useStore } from '../store';
 import type { FullAnalysis, InternalTeamMetric } from '../store';
 
@@ -32,8 +31,13 @@ function teamNameShort(name: string) {
 
 export default function Analysis() {
   const navigate = useNavigate();
-  const complaints = useStore((state) => state.processedComplaints);
+  const allComplaints = useStore((state) => state.processedComplaints);
+  const totalProcessed = useStore((state) => state.totalProcessed);
   const trends = useStore((state) => state.backendTrends);
+  const complaints = useMemo(
+    () => allComplaints.filter((complaint) => complaint.channel === 'cfpb'),
+    [allComplaints],
+  );
 
   const [teamMetrics, setTeamMetrics] = useState<InternalTeamMetric[]>([]);
   const [selectedTeamName, setSelectedTeamName] = useState('');
@@ -61,14 +65,14 @@ export default function Analysis() {
   }, []);
 
   const kpis = useMemo(() => {
-    const total = complaints.length;
+    const total = totalProcessed;
     const critical = complaints.filter((complaint) => complaint.risk_level === 'CRITICAL').length;
     const review = complaints.filter((complaint) => complaint.needs_human_review).length;
     const divergent = complaints.filter((complaint) => (complaint.baseline_delta?.divergence_score ?? 0) >= 2).length;
     const sla = complaints.filter((complaint) => complaint.sla_breach_risk).length;
     const avgCriticality = total ? Math.round(complaints.reduce((sum, complaint) => sum + (complaint.criticality_score ?? 0), 0) / total) : 0;
     return { total, critical, review, divergent, sla, avgCriticality };
-  }, [complaints]);
+  }, [complaints, totalProcessed]);
 
   const escalationByDay = useMemo(() => {
     const map: Record<string, { date: string; review: number; critical: number; sla: number }> = {};
@@ -122,10 +126,7 @@ export default function Analysis() {
         const payload = await api.complaint(selectedComplaintId);
         if (!cancelled) setSelectedDetail(payload);
       } catch {
-        if (!cancelled) {
-          const summary = complaints.find((complaint) => complaint.complaint_id === selectedComplaintId);
-          setSelectedDetail(summary ? syntheticAnalysis(summary) : null);
-        }
+        if (!cancelled) setSelectedDetail(null);
       }
     }
 

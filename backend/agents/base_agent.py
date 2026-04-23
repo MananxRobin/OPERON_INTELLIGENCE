@@ -14,7 +14,7 @@ from backend.database import save_audit_log
 class BaseAgent(ABC):
     """Abstract base class for all complaint analysis agents."""
 
-    def __init__(self, client: httpx.Client, model: str = "deepseek-chat"):
+    def __init__(self, client: httpx.Client, model: str = "gpt-5.4-mini"):
         self.client = client
         self.model = model
 
@@ -90,7 +90,7 @@ class BaseAgent(ABC):
             raise
 
     def _request_structured_output(self, user_message: str) -> dict:
-        """Call DeepSeek chat completions with JSON output mode."""
+        """Call the configured chat completions backend with JSON output mode."""
         schema = self.output_tool.get("input_schema", {})
         expected_keys = list((schema.get("properties") or {}).keys())
         expected_hint = ", ".join(expected_keys)
@@ -113,10 +113,12 @@ class BaseAgent(ABC):
                 {"role": "user", "content": user_prompt},
             ],
             "response_format": {"type": "json_object"},
-            "max_tokens": 8192,
         }
-        if self.model != "deepseek-reasoner":
-            payload["temperature"] = 0.1
+        if self.model.startswith("gpt-5"):
+            payload["max_completion_tokens"] = 8192
+        else:
+            payload["max_tokens"] = 8192
+        payload["temperature"] = 0.1
 
         last_error: Exception | None = None
         for _ in range(2):

@@ -117,7 +117,7 @@ export default function LiveFeed() {
     [complaints]
   );
 
-  const createLiveSchedule = async (cadence: 'live_1m' | 'live_5m' | 'live_15m' | 'live_60m') => {
+  const createLiveSchedule = async (cadence: 'live_10m' | 'live_15m' | 'live_60m') => {
     try {
       await api.createSchedule({
         name: `Live ${cadence.replace('live_', '').replace('m', 'm poll')}`,
@@ -163,8 +163,7 @@ export default function LiveFeed() {
           <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {([
-                ['live_1m', '1m'],
-                ['live_5m', '5m'],
+                ['live_10m', '10m'],
                 ['live_15m', '15m'],
                 ['live_60m', '60m'],
               ] as const).map(([cadence, label]) => (

@@ -32,6 +32,14 @@ except ImportError:
 
             super().__init__(wrapped(), media_type="text/event-stream", *args, **kwargs)
 
+from backend.cfpb_cache_db import (
+    count_cached_cfpb_complaints,
+    init_cfpb_cache_db,
+    latest_cached_cfpb_date_received,
+    latest_cached_cfpb_fetch_time,
+    list_cached_cfpb_complaints,
+    upsert_cfpb_complaints,
+)
 from backend.agents.orchestrator import Orchestrator
 from backend.data.sample_complaints import SAMPLE_COMPLAINTS
 from backend.database import (
@@ -40,6 +48,7 @@ from backend.database import (
     count_complaints,
     create_schedule,
     create_schedule_run,
+    delete_complaints,
     delete_schedule,
     fail_running_schedule_runs,
     get_all_complaints,
@@ -85,11 +94,15 @@ FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 load_dotenv(PROJECT_ROOT / ".env", override=False)
 load_dotenv(BACKEND_DIR / ".env", override=True)
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 CFPB_SEARCH_URL = "https://www.consumerfinance.gov/data-research/consumer-complaints/search/api/v1/"
-DEFAULT_CFPB_SCHEDULE_NAME = "CFPB 4h Ingest"
+DEFAULT_CFPB_SCHEDULE_NAME = "CFPB 10m Ingest"
 SCHEDULER_POLL_SECONDS = 30
+DEFAULT_CFPB_INGEST_SIZE = 100
+DEFAULT_CFPB_LOOKBACK_DAYS = max(1, int(os.getenv("OPERON_CFPB_LOOKBACK_DAYS", "2")))
 
 NORMALIZATION_BATCHES: Dict[int, Dict[str, Any]] = {}
 REVIEW_DECISIONS: Dict[str, Dict[str, Any]] = {}
@@ -100,7 +113,42 @@ SCHEDULE_RUN_LOCK = asyncio.Lock()
 
 
 def _has_llm_backend() -> bool:
-    return bool(DEEPSEEK_API_KEY and DEEPSEEK_API_KEY != "your-api-key-here")
+    return bool(_llm_api_key())
+
+
+def _llm_provider() -> str:
+    if OPENAI_API_KEY and OPENAI_API_KEY != "your-api-key-here":
+        return "openai"
+    if DEEPSEEK_API_KEY and DEEPSEEK_API_KEY != "your-api-key-here":
+        return "deepseek"
+    return "local_fallback"
+
+
+def _llm_api_key() -> str:
+    provider = _llm_provider()
+    if provider == "openai":
+        return OPENAI_API_KEY
+    if provider == "deepseek":
+        return DEEPSEEK_API_KEY
+    return ""
+
+
+def _llm_model() -> str:
+    provider = _llm_provider()
+    if provider == "openai":
+        return OPENAI_MODEL
+    if provider == "deepseek":
+        return DEEPSEEK_MODEL
+    return "local_fallback"
+
+
+def _llm_base_url() -> str:
+    provider = _llm_provider()
+    if provider == "openai":
+        return "https://api.openai.com/v1/"
+    if provider == "deepseek":
+        return "https://api.deepseek.com/v1/"
+    return ""
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -115,7 +163,11 @@ def _scheduler_enabled() -> bool:
 
 
 def _startup_ingest_enabled() -> bool:
-    return _env_flag("OPERON_ENABLE_STARTUP_INGEST")
+    return _env_flag("OPERON_ENABLE_STARTUP_INGEST", default=True)
+
+
+def _serve_frontend_bundle() -> bool:
+    return _env_flag("OPERON_SERVE_FRONTEND", default=False)
 
 
 def _cors_origins() -> list[str]:
@@ -129,7 +181,7 @@ def _cors_origins() -> list[str]:
     ]
 
 
-orchestrator = Orchestrator(api_key=DEEPSEEK_API_KEY, model=DEEPSEEK_MODEL)
+orchestrator = Orchestrator(api_key=_llm_api_key(), model=_llm_model(), base_url=_llm_base_url() or "https://api.openai.com/v1/")
 
 
 def _persist_local_analysis(analysis: Dict[str, Any], metadata: Dict[str, Any], emit_events: bool = False) -> None:
@@ -141,10 +193,17 @@ def _persist_local_analysis(analysis: Dict[str, Any], metadata: Dict[str, Any], 
         narrative=complaint["narrative"],
         product=complaint.get("product"),
         channel=complaint.get("channel", "web"),
+        source=metadata.get("source") or complaint.get("source"),
+        source_label=metadata.get("source_label") or complaint.get("source_label"),
         customer_state=complaint.get("customer_state"),
         customer_id=complaint.get("customer_id"),
         date_received=complaint.get("date_received"),
         tags=complaint.get("tags", []),
+        company=metadata.get("company") or complaint.get("company"),
+        submitted_via=metadata.get("submitted_via") or complaint.get("submitted_via"),
+        company_response=metadata.get("company_response") or complaint.get("company_response"),
+        timely=metadata.get("timely") or complaint.get("timely"),
+        consumer_disputed=metadata.get("consumer_disputed") or complaint.get("consumer_disputed"),
     )
     update_complaint_status(complaint_id, "processing")
     save_analysis_result(
@@ -207,10 +266,17 @@ async def _run_fast_analysis(
         narrative=narrative,
         product=metadata.get("product"),
         channel=metadata.get("channel", "web"),
+        source=metadata.get("source"),
+        source_label=metadata.get("source_label"),
         customer_state=metadata.get("customer_state"),
         customer_id=metadata.get("customer_id"),
         date_received=metadata.get("date_received"),
         tags=metadata.get("tags", []),
+        company=metadata.get("company"),
+        submitted_via=metadata.get("submitted_via"),
+        company_response=metadata.get("company_response"),
+        timely=metadata.get("timely"),
+        consumer_disputed=metadata.get("consumer_disputed"),
     )
     update_complaint_status(complaint_id, "processing")
 
@@ -221,7 +287,11 @@ async def _run_fast_analysis(
             {
                 "agent": "ClassificationAgent",
                 "status": "running",
-                "message": "Classifying complaint with fast DeepSeek/local hybrid path...",
+                "message": (
+                    f"Classifying complaint via {_llm_provider().replace('_', ' ')} with deterministic fallback..."
+                    if _has_llm_backend()
+                    else "Classifying complaint via deterministic local pipeline..."
+                ),
             },
         )
 
@@ -235,7 +305,7 @@ async def _run_fast_analysis(
                 timeout=10.0,
             )
             classification = orchestrator.classification_agent.normalize_result(classification)
-            classification_source = "deepseek_chat"
+            classification_source = _llm_model().replace("-", "_")
         except Exception:
             classification = classify_complaint(narrative, metadata)
     else:
@@ -262,6 +332,8 @@ async def _run_fast_analysis(
             "narrative": narrative,
             "product": metadata.get("product"),
             "channel": metadata.get("channel", "web"),
+            "source": metadata.get("source"),
+            "source_label": metadata.get("source_label"),
             "customer_state": metadata.get("customer_state"),
             "customer_id": metadata.get("customer_id"),
             "date_received": metadata.get("date_received"),
@@ -315,6 +387,8 @@ def _build_metadata(payload: Any) -> Dict[str, Any]:
         "id": payload.complaint_id,
         "product": payload.product,
         "channel": payload.channel,
+        "source": getattr(payload, "source", None),
+        "source_label": getattr(payload, "source_label", None),
         "customer_state": payload.customer_state,
         "customer_id": payload.customer_id,
         "date_received": payload.date_received,
@@ -355,9 +429,16 @@ def _row_to_detail(row: Dict[str, Any]) -> Dict[str, Any]:
             "narrative": row.get("narrative", ""),
             "product": row.get("product"),
             "channel": row.get("channel", "web"),
+            "source": row.get("source"),
+            "source_label": row.get("source_label"),
             "customer_state": row.get("customer_state"),
             "customer_id": row.get("customer_id"),
             "date_received": row.get("date_received"),
+            "company": row.get("company"),
+            "submitted_via": row.get("submitted_via"),
+            "company_response": row.get("company_response"),
+            "timely": row.get("timely"),
+            "consumer_disputed": row.get("consumer_disputed"),
             "tags": row.get("tags", []),
         },
         "classification": row.get("classification_result") or {},
@@ -380,6 +461,11 @@ def _full_summary_details() -> list[Dict[str, Any]]:
     if total <= 0:
         return []
     return _all_summary_details(limit=total, offset=0)
+
+
+def _cfpb_complaint_count(limit: int = 1000) -> int:
+    rows = get_all_complaints(limit=limit, offset=0)
+    return sum(1 for row in rows if (row.get("channel") or "").lower() == "cfpb")
 
 
 def _matches_filters(
@@ -508,6 +594,124 @@ def _dashboard_supervisor_payload(limit: int) -> Dict[str, Any]:
     return build_supervisor_snapshot_from_summaries(summaries, queue_limit=limit)
 
 
+def _is_closed_company_response(value: Optional[str]) -> bool:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return False
+    return normalized.startswith("closed")
+
+
+def _response_friction_row(row: Dict[str, Any]) -> bool:
+    response = (row.get("company_response") or "").strip().lower()
+    return (
+        row.get("consumer_disputed") == "Yes"
+        or row.get("timely") == "No"
+        or response in {"in progress", "untimely response", "pending", "pending response"}
+    )
+
+
+def _average_resolution_days(rows: list[Dict[str, Any]]) -> Optional[float]:
+    durations: list[float] = []
+    for row in rows:
+        if not _is_closed_company_response(row.get("company_response")):
+            continue
+        date_received = _parse_iso((row.get("date_received") or "")[:10])
+        date_sent = _parse_iso((row.get("date_sent_to_company") or "")[:10])
+        fetched_at = _parse_iso(row.get("fetched_at"))
+        if date_received and date_sent:
+            durations.append(max(0.0, (date_sent - date_received).total_seconds() / 86400))
+        elif date_received and fetched_at:
+            durations.append(max(0.0, (fetched_at - date_received).total_seconds() / 86400))
+    if not durations:
+        return None
+    return sum(durations) / len(durations)
+
+
+def _cfpb_synopsis_payload(days: int, snapshot_limit: int) -> Dict[str, Any]:
+    window_days = min(max(int(days or 30), 1), 365)
+    date_received_min = _days_ago_iso(window_days)
+    rows = list_cached_cfpb_complaints(limit=5000, offset=0, date_received_min=date_received_min)
+    total = len(rows)
+
+    by_date: Dict[str, int] = {}
+    by_state: Dict[str, int] = {}
+    by_product: Dict[str, int] = {}
+    by_company: Dict[str, int] = {}
+
+    for row in rows:
+        date_key = row.get("date_received") or (row.get("fetched_at") or "")[:10]
+        if date_key:
+            by_date[date_key] = by_date.get(date_key, 0) + 1
+
+        state = row.get("state")
+        if state:
+            by_state[state] = by_state.get(state, 0) + 1
+
+        product = row.get("product") or "Unknown"
+        by_product[product] = by_product.get(product, 0) + 1
+
+        company = row.get("company") or "Unknown institution"
+        by_company[company] = by_company.get(company, 0) + 1
+
+    auto_resolution_count = sum(1 for row in rows if _is_closed_company_response(row.get("company_response")))
+    response_friction_count = sum(1 for row in rows if _response_friction_row(row))
+    avg_resolution_days = _average_resolution_days(rows)
+    live_snapshot = [
+        {
+            "complaint_id": row["complaint_id"],
+            "date_received": row.get("date_received"),
+            "product": row.get("product"),
+            "issue": row.get("issue"),
+            "company": row.get("company"),
+            "state": row.get("state"),
+            "submitted_via": row.get("submitted_via"),
+            "company_response": row.get("company_response"),
+            "timely": row.get("timely"),
+            "consumer_disputed": row.get("consumer_disputed"),
+            "narrative_preview": (row.get("complaint_what_happened") or "")[:160],
+        }
+        for row in rows[: max(1, min(snapshot_limit, 12))]
+    ]
+
+    return {
+        "meta": {
+            "source": "cfpb_cache",
+            "days": window_days,
+            "date_received_min": date_received_min,
+            "last_cached_at": latest_cached_cfpb_fetch_time(),
+            "total_cached": count_cached_cfpb_complaints(),
+        },
+        "kpis": {
+            "total_processed": total,
+            "auto_resolution_count": auto_resolution_count,
+            "auto_resolution_rate": (auto_resolution_count / total * 100) if total else 0.0,
+            "avg_resolution_days": avg_resolution_days,
+            "response_friction_count": response_friction_count,
+            "response_friction_rate": (response_friction_count / total * 100) if total else 0.0,
+        },
+        "complaint_volume": [
+            {"date": date_key, "count": count}
+            for date_key, count in sorted(by_date.items())
+        ],
+        "response_friction": [
+            {"name": "Disputed", "value": sum(1 for row in rows if row.get("consumer_disputed") == "Yes")},
+            {"name": "Untimely", "value": sum(1 for row in rows if row.get("timely") == "No")},
+            {"name": "In progress", "value": sum(1 for row in rows if (row.get("company_response") or "").strip().lower() == "in progress")},
+            {"name": "Closed", "value": auto_resolution_count},
+        ],
+        "geographic_distribution": by_state,
+        "by_product": [
+            {"name": name, "value": value}
+            for name, value in sorted(by_product.items(), key=lambda item: item[1], reverse=True)[:8]
+        ],
+        "top_institutions": [
+            {"name": name, "value": value}
+            for name, value in sorted(by_company.items(), key=lambda item: item[1], reverse=True)[:8]
+        ],
+        "live_snapshot": live_snapshot,
+    }
+
+
 def _internal_teams_payload() -> Dict[str, Any]:
     details = _full_summary_details()
     enriched = [enrich_detail(detail) for detail in details]
@@ -583,6 +787,10 @@ def _now_iso() -> str:
     return _utc_now().isoformat()
 
 
+def _days_ago_iso(days: int) -> str:
+    return (_utc_now() - timedelta(days=max(0, days))).date().isoformat()
+
+
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -596,6 +804,7 @@ def _next_run_time(cadence: str, from_time: Optional[datetime] = None) -> Option
     base = from_time or _utc_now()
     normalized = (cadence or "").lower()
     mapping = {
+        "live_10m": timedelta(minutes=10),
         "live_1m": timedelta(minutes=1),
         "live_5m": timedelta(minutes=5),
         "live_15m": timedelta(minutes=15),
@@ -687,23 +896,60 @@ def _fallback_cfpb_payload(size: int) -> Dict[str, Any]:
     }
 
 
-def _fetch_cfpb_rows(size: int = 25, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _extract_cfpb_hits(payload: Any, size: int) -> tuple[list[Dict[str, Any]], int]:
+    if isinstance(payload, list):
+        hits = payload
+        return hits, len(payload)
+
+    if isinstance(payload, dict):
+        hits = payload.get("hits", {}).get("hits", []) or []
+        total_hits = payload.get("hits", {}).get("total", {})
+        total_available = total_hits.get("value") if isinstance(total_hits, dict) else len(hits)
+        return hits[: max(1, size)], total_available if total_available is not None else len(hits)
+
+    return [], 0
+
+
+def _cfpb_source_row(hit: Dict[str, Any]) -> Dict[str, Any]:
+    source = hit.get("_source")
+    if isinstance(source, dict) and source:
+        return source
+    return hit if isinstance(hit, dict) else {}
+
+
+def _cfpb_filters_with_recent_window(filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    merged = dict(filters or {})
+    if not merged.get("date_received_min"):
+        latest_cached_date = latest_cached_cfpb_date_received()
+        if latest_cached_date:
+            try:
+                latest_dt = datetime.fromisoformat(str(latest_cached_date)[:10])
+                merged["date_received_min"] = (latest_dt - timedelta(days=1)).date().isoformat()
+            except ValueError:
+                merged["date_received_min"] = _days_ago_iso(DEFAULT_CFPB_LOOKBACK_DAYS)
+        else:
+            merged["date_received_min"] = _days_ago_iso(DEFAULT_CFPB_LOOKBACK_DAYS)
+    return merged
+
+
+def _fetch_cfpb_rows(size: int = DEFAULT_CFPB_INGEST_SIZE, filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    scoped_filters = _cfpb_filters_with_recent_window(filters)
     params: Dict[str, Any] = {
-        "size": max(1, min(int(size or 25), 100)),
+        "size": max(1, min(int(size or DEFAULT_CFPB_INGEST_SIZE), 100)),
         "sort": "created_date_desc",
         "format": "json",
     }
-    for key, value in (filters or {}).items():
+    for key, value in scoped_filters.items():
         if value is None or value == "":
             continue
         params[key] = value
 
     query = urlencode(params, doseq=True)
     response = subprocess.run(
-        ["curl", "--max-time", "5", "-fsSL", f"{CFPB_SEARCH_URL}?{query}"],
+        ["curl", "--max-time", "20", "-fsSL", f"{CFPB_SEARCH_URL}?{query}"],
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=25,
         check=True,
     )
     return json.loads(response.stdout)
@@ -716,58 +962,51 @@ def _ingest_cfpb_batch_sync(
     schedule_id: Optional[int] = None,
     schedule_run_id: Optional[int] = None,
 ) -> Dict[str, Any]:
-    used_fallback = False
-    try:
-        payload = _fetch_cfpb_rows(size=size, filters=filters)
-    except Exception:
-        payload = _fallback_cfpb_payload(size=size)
-        used_fallback = True
-    hits = payload.get("hits", {}).get("hits", []) or []
-
-    processed_count = 0
-    skipped_count = 0
-    inserted_ids: list[str] = []
+    scoped_filters = _cfpb_filters_with_recent_window(filters)
+    payload = _fetch_cfpb_rows(size=size, filters=scoped_filters)
+    hits, total_available = _extract_cfpb_hits(payload, size)
+    cache_rows: list[Dict[str, Any]] = []
 
     for hit in hits:
-        source = hit.get("_source", {}) or {}
+        source = _cfpb_source_row(hit)
         raw_complaint_id = str(source.get("complaint_id") or hit.get("_id") or "").strip()
         if not raw_complaint_id:
-            skipped_count += 1
             continue
+        cache_rows.append(
+            {
+                "complaint_id": raw_complaint_id,
+                "date_received": (source.get("date_received") or "")[:10] or None,
+                "date_sent_to_company": (source.get("date_sent_to_company") or "")[:10] or None,
+                "product": source.get("product"),
+                "sub_product": source.get("sub_product"),
+                "issue": source.get("issue"),
+                "sub_issue": source.get("sub_issue"),
+                "company": source.get("company"),
+                "state": source.get("state"),
+                "zip_code": source.get("zip_code"),
+                "submitted_via": source.get("submitted_via"),
+                "tags": _normalize_tags(source.get("tags")),
+                "complaint_what_happened": source.get("complaint_what_happened"),
+                "consumer_consent_provided": source.get("consumer_consent_provided"),
+                "company_response": source.get("company_response"),
+                "company_public_response": source.get("company_public_response"),
+                "timely": source.get("timely"),
+                "consumer_disputed": source.get("consumer_disputed"),
+            }
+        )
 
-        complaint_id = f"CFPB-{raw_complaint_id}"
-        if complaint_exists(complaint_id):
-            skipped_count += 1
-            continue
-
-        metadata = {
-            "id": complaint_id,
-            "product": source.get("product"),
-            "channel": "cfpb",
-            "customer_state": source.get("state"),
-            "customer_id": None,
-            "date_received": (source.get("date_received") or "")[:10] or None,
-            "tags": _normalize_tags(source.get("tags")),
-            "schedule_id": schedule_id,
-            "schedule_run_id": schedule_run_id,
-        }
-        narrative = _cfpb_narrative(source)
-        analysis = run_local_pipeline(complaint_id, narrative, metadata)
-        _persist_local_analysis(analysis, metadata, emit_events=False)
-        processed_count += 1
-        inserted_ids.append(complaint_id)
-
-    total_hits = payload.get("hits", {}).get("total", {})
-    total_available = total_hits.get("value") if isinstance(total_hits, dict) else len(hits)
+    cached_count = upsert_cfpb_complaints(cache_rows)
 
     return {
         "source": "live_cfpb",
-        "used_fallback": used_fallback,
+        "used_fallback": False,
+        "filters_used": scoped_filters,
+        "cached_count": cached_count,
         "fetched_count": len(hits),
         "total_available": total_available,
-        "processed_count": processed_count,
-        "skipped_count": skipped_count,
-        "inserted_ids": inserted_ids[:10],
+        "processed_count": cached_count,
+        "skipped_count": 0,
+        "inserted_ids": [],
     }
 
 
@@ -830,15 +1069,52 @@ async def _run_schedule_job(schedule_id: int, triggered_by: str = "manual") -> D
 def _ensure_default_schedule() -> Dict[str, Any]:
     existing = get_schedule_by_name(DEFAULT_CFPB_SCHEDULE_NAME)
     if existing:
+        payload = existing.get("payload") or {}
+        current_size = int(payload.get("size") or 0)
+        needs_size_upgrade = current_size < DEFAULT_CFPB_INGEST_SIZE
+        needs_cadence_upgrade = (existing.get("cadence") or "").lower() != "live_10m"
+        if needs_size_upgrade or needs_cadence_upgrade:
+            upgraded_payload = {**payload, "size": max(current_size, DEFAULT_CFPB_INGEST_SIZE)}
+            updated = update_schedule(
+                existing["id"],
+                cadence="live_10m",
+                payload=upgraded_payload,
+                next_run_at=_next_run_iso("live_10m"),
+            )
+            return updated or existing
         return existing
+    legacy_1m = get_schedule_by_name("CFPB 1m Ingest")
+    if legacy_1m:
+        payload = legacy_1m.get("payload") or {}
+        upgraded_payload = {**payload, "size": max(int(payload.get("size") or 0), DEFAULT_CFPB_INGEST_SIZE)}
+        updated = update_schedule(
+            legacy_1m["id"],
+            name=DEFAULT_CFPB_SCHEDULE_NAME,
+            cadence="live_10m",
+            payload=upgraded_payload,
+            next_run_at=_next_run_iso("live_10m"),
+        )
+        return updated or legacy_1m
+    legacy = get_schedule_by_name("CFPB 4h Ingest")
+    if legacy:
+        payload = legacy.get("payload") or {}
+        upgraded_payload = {**payload, "size": max(int(payload.get("size") or 0), DEFAULT_CFPB_INGEST_SIZE)}
+        updated = update_schedule(
+            legacy["id"],
+            name=DEFAULT_CFPB_SCHEDULE_NAME,
+            cadence="live_10m",
+            payload=upgraded_payload,
+            next_run_at=_next_run_iso("live_10m"),
+        )
+        return updated or legacy
     return create_schedule(
         name=DEFAULT_CFPB_SCHEDULE_NAME,
         mode="live",
-        cadence="every_4h",
+        cadence="live_10m",
         source_type="cfpb_live",
-        payload={"size": 25, "filters": {}},
+        payload={"size": DEFAULT_CFPB_INGEST_SIZE, "filters": {}},
         status="active",
-        next_run_at=_next_run_iso("every_4h"),
+        next_run_at=_next_run_iso("live_10m"),
     )
 
 
@@ -864,30 +1140,13 @@ async def _run_schedule_job_safe(schedule_id: int, triggered_by: str) -> None:
         return
 
 
-def _seed_demo_dataset() -> None:
-    existing = {row["complaint_id"] for row in get_all_complaints(limit=500, offset=0)}
-    for sample in SAMPLE_COMPLAINTS:
-        if sample["id"] in existing:
-            continue
-        metadata = {
-            "id": sample["id"],
-            "product": sample.get("product"),
-            "channel": sample.get("channel", "web"),
-            "customer_state": sample.get("customer_state"),
-            "date_received": sample.get("date_received"),
-            "tags": sample.get("tags", []),
-        }
-        analysis = run_local_pipeline(sample["id"], sample["narrative"], metadata)
-        _persist_local_analysis(analysis, metadata, emit_events=False)
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global SCHEDULER_STOP, SCHEDULER_TASK
 
     init_db()
+    init_cfpb_cache_db()
     fail_running_schedule_runs()
-    _seed_demo_dataset()
     default_schedule = _ensure_default_schedule()
     if _scheduler_enabled():
         SCHEDULER_STOP = asyncio.Event()
@@ -895,7 +1154,11 @@ async def lifespan(app: FastAPI):
     else:
         SCHEDULER_STOP = None
         SCHEDULER_TASK = None
-    if default_schedule and not default_schedule.get("last_run_at") and _startup_ingest_enabled():
+    if (
+        default_schedule
+        and _startup_ingest_enabled()
+        and count_cached_cfpb_complaints() == 0
+    ):
         asyncio.create_task(_run_schedule_job_safe(default_schedule["id"], triggered_by="startup"))
     try:
         yield
@@ -929,6 +1192,8 @@ class AnalyzeRequest(BaseModel):
     narrative: str
     product: Optional[str] = None
     channel: str = "web"
+    source: Optional[str] = None
+    source_label: Optional[str] = None
     customer_state: Optional[str] = None
     customer_id: Optional[str] = None
     date_received: Optional[str] = None
@@ -974,9 +1239,9 @@ async def health_check():
         "status": "healthy",
         "service": "operon-intelligence",
         "ai_enabled": _has_llm_backend(),
-        "ai_provider": "deepseek",
-        "ai_model": DEEPSEEK_MODEL,
-        "analysis_mode": "deepseek_reasoner" if _has_llm_backend() and DEEPSEEK_MODEL == "deepseek-reasoner" else ("deepseek_chat" if _has_llm_backend() else "local_fallback"),
+        "ai_provider": _llm_provider(),
+        "ai_model": _llm_model(),
+        "analysis_mode": _llm_model() if _has_llm_backend() else "local_fallback",
     }
 
 
@@ -1144,6 +1409,11 @@ async def dashboard_stats():
 @app.get("/api/dashboard/trends")
 async def dashboard_trends(days: int = 14):
     return await asyncio.to_thread(_dashboard_trends_payload, days)
+
+
+@app.get("/api/synopsis/cfpb")
+async def synopsis_cfpb(days: int = 30, snapshot_limit: int = 8):
+    return await asyncio.to_thread(_cfpb_synopsis_payload, days, snapshot_limit)
 
 
 @app.get("/api/dashboard/supervisor")
@@ -1339,6 +1609,8 @@ async def batch_process(request: BatchRequest, background_tasks: BackgroundTasks
 
 @app.get("/{full_path:path}", include_in_schema=False)
 async def serve_frontend(full_path: str):
+    if not _serve_frontend_bundle():
+        raise HTTPException(status_code=404, detail="Not found")
     if not FRONTEND_DIST.exists():
         raise HTTPException(status_code=404, detail="Frontend build not found")
     if full_path.startswith("api"):

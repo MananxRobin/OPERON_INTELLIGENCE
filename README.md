@@ -13,7 +13,7 @@ The current codebase is designed to support both demo mode and production-style 
 ## Core capabilities
 
 - Unified complaint intake across phone, email, AI chat, forms, manual entry, normalized uploads, and CFPB ingestion
-- Deterministic complaint analysis pipeline with optional DeepSeek acceleration
+- Deterministic complaint analysis pipeline with optional OpenAI or DeepSeek acceleration
 - Explainable routing, evidence support, baseline comparison, and supervisor review gates
 - Internal team handoff model with customer profile and account context
 - Customer and ticket lookup for internal operators
@@ -104,6 +104,10 @@ VITE_DEEPSEEK_API_KEY=sk-your-deepseek-key
 #### `backend/.env`
 
 ```env
+OPENAI_API_KEY=sk-your-openai-key
+OPENAI_MODEL=gpt-5.4-mini
+
+# Optional legacy fallback
 DEEPSEEK_API_KEY=sk-your-deepseek-key
 DEEPSEEK_MODEL=deepseek-chat
 ```
@@ -112,12 +116,13 @@ Optional backend overrides:
 
 ```env
 OPERON_DB_PATH=/absolute/path/to/operon.db
+OPERON_CFPB_DB_PATH=/absolute/path/to/cfpb_cache.db
 OPERON_CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 OPERON_DISABLE_SCHEDULER=0
-OPERON_ENABLE_STARTUP_INGEST=0
+OPERON_ENABLE_STARTUP_INGEST=1
 ```
 
-Startup ingest is opt-in. The persisted 4-hour CFPB schedule is enabled by default, but the backend does not fire an eager live ingest during boot unless `OPERON_ENABLE_STARTUP_INGEST=1`.
+Startup ingest is enabled by default. On first boot, the backend attempts a larger live CFPB pull so the app starts with a more substantial real complaint set instead of only the small seeded sample dataset. Set `OPERON_ENABLE_STARTUP_INGEST=0` if you want to disable that bootstrap behavior.
 
 ### 3. Start development servers
 
@@ -137,6 +142,8 @@ Default URLs:
 
 - frontend: `http://localhost:5173`
 - backend: `http://localhost:8000`
+
+In development, the backend is API-only. It does not serve the frontend bundle on port `8000`; use Vite on port `5173` for the UI.
 
 ## Production-style local run
 

@@ -60,9 +60,16 @@ def init_db():
             narrative TEXT NOT NULL,
             product TEXT,
             channel TEXT DEFAULT 'web',
+            source TEXT,
+            source_label TEXT,
             customer_state TEXT,
             customer_id TEXT,
             date_received TEXT,
+            company TEXT,
+            submitted_via TEXT,
+            company_response TEXT,
+            timely TEXT,
+            consumer_disputed TEXT,
             tags TEXT DEFAULT '[]',
             status TEXT DEFAULT 'received',
             submitted_at TEXT NOT NULL,
@@ -138,31 +145,65 @@ def init_db():
     """)
 
     conn.commit()
+
+    existing_columns = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(complaints)").fetchall()
+    }
+    complaint_column_defs = {
+        "source": "TEXT",
+        "source_label": "TEXT",
+        "company": "TEXT",
+        "submitted_via": "TEXT",
+        "company_response": "TEXT",
+        "timely": "TEXT",
+        "consumer_disputed": "TEXT",
+    }
+    for column_name, column_type in complaint_column_defs.items():
+        if column_name not in existing_columns:
+            conn.execute(f"ALTER TABLE complaints ADD COLUMN {column_name} {column_type}")
+
+    conn.commit()
     conn.close()
 
 
 def save_complaint(complaint_id: str, narrative: str, product: Optional[str],
                    channel: str, customer_state: Optional[str],
                    customer_id: Optional[str], date_received: Optional[str],
-                   tags: list[str]):
+                   tags: list[str], source: Optional[str] = None,
+                   source_label: Optional[str] = None,
+                   company: Optional[str] = None,
+                   submitted_via: Optional[str] = None,
+                   company_response: Optional[str] = None,
+                   timely: Optional[str] = None,
+                   consumer_disputed: Optional[str] = None):
     """Save a new complaint to the database."""
     conn = get_connection()
     conn.execute(
         """INSERT INTO complaints
-           (complaint_id, narrative, product, channel, customer_state,
-            customer_id, date_received, tags, status, submitted_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
+           (complaint_id, narrative, product, channel, source, source_label, customer_state,
+            customer_id, date_received, company, submitted_via,
+            company_response, timely, consumer_disputed, tags, status, submitted_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'received', ?)
            ON CONFLICT(complaint_id) DO UPDATE SET
              narrative = excluded.narrative,
              product = excluded.product,
              channel = excluded.channel,
+             source = COALESCE(excluded.source, complaints.source),
+             source_label = COALESCE(excluded.source_label, complaints.source_label),
              customer_state = excluded.customer_state,
              customer_id = COALESCE(excluded.customer_id, complaints.customer_id),
              date_received = COALESCE(excluded.date_received, complaints.date_received),
+             company = COALESCE(excluded.company, complaints.company),
+             submitted_via = COALESCE(excluded.submitted_via, complaints.submitted_via),
+             company_response = COALESCE(excluded.company_response, complaints.company_response),
+             timely = COALESCE(excluded.timely, complaints.timely),
+             consumer_disputed = COALESCE(excluded.consumer_disputed, complaints.consumer_disputed),
              tags = excluded.tags
         """,
-        (complaint_id, narrative, product, channel, customer_state,
-         customer_id, date_received, json.dumps(tags),
+        (complaint_id, narrative, product, channel, source, source_label, customer_state,
+         customer_id, date_received, company, submitted_via,
+         company_response, timely, consumer_disputed, json.dumps(tags),
          datetime.utcnow().isoformat())
     )
     conn.commit()
@@ -178,6 +219,22 @@ def complaint_exists(complaint_id: str) -> bool:
     ).fetchone()
     conn.close()
     return row is not None
+
+
+def delete_complaints(complaint_ids: list[str]) -> int:
+    """Delete complaints and their dependent analysis/audit rows."""
+    if not complaint_ids:
+        return 0
+
+    placeholders = ",".join("?" for _ in complaint_ids)
+    conn = get_connection()
+    conn.execute(f"DELETE FROM audit_logs WHERE complaint_id IN ({placeholders})", complaint_ids)
+    conn.execute(f"DELETE FROM analysis_results WHERE complaint_id IN ({placeholders})", complaint_ids)
+    cursor = conn.execute(f"DELETE FROM complaints WHERE complaint_id IN ({placeholders})", complaint_ids)
+    deleted = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
 
 
 def count_complaints() -> int:
@@ -271,9 +328,16 @@ def get_complaint(complaint_id: str) -> Optional[dict]:
             "narrative": complaint["narrative"],
             "product": complaint.get("product"),
             "channel": complaint.get("channel", "web"),
+            "source": complaint.get("source"),
+            "source_label": complaint.get("source_label"),
             "customer_state": complaint.get("customer_state"),
             "customer_id": complaint.get("customer_id"),
             "date_received": complaint.get("date_received"),
+            "company": complaint.get("company"),
+            "submitted_via": complaint.get("submitted_via"),
+            "company_response": complaint.get("company_response"),
+            "timely": complaint.get("timely"),
+            "consumer_disputed": complaint.get("consumer_disputed"),
             "tags": complaint.get("tags", []),
         },
         "classification": _loads_json(analysis_data.get("classification_result"), None),

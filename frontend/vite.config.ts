@@ -17,7 +17,10 @@ export default defineConfig({
       '/api/cfpb': {
         target: 'https://www.consumerfinance.gov',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/cfpb/, '/data-research/consumer-complaints/search/api/v1'),
+        rewrite: (path) => {
+          const suffix = path.slice('/api/cfpb'.length).replace(/^\/+/, '');
+          return `/data-research/consumer-complaints/search/api/v1/${suffix}`;
+        },
       },
       '/api/deepseek': {
         target: 'https://api.deepseek.com',

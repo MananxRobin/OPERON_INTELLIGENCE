@@ -177,9 +177,6 @@ export default function Analyze() {
         <p style={{ fontSize: 11, color: 'var(--text-weak)', marginTop: 3 }}>
           Run the 5-agent workflow, watch each specialist update live, and review the final resolution package
         </p>
-        <p style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 6 }}>
-          DeepSeek Chat is enabled for the live analysis path so demo runs complete much faster while still streaming each agent update.
-        </p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16, alignItems: 'start' }}>
@@ -209,10 +206,10 @@ export default function Analyze() {
           {intakeMode === 'manual' && samples.length > 0 && (
             <div className="panel" style={{ padding: 16 }}>
               <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-weak)', marginBottom: 10 }}>
-                Sample Complaints ({samples.length})
+                CFPB Complaints ({samples.length})
               </div>
               <select value={selectedSample} onChange={(e) => pickSample(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 11 }}>
-                <option value="">Select a sample complaint…</option>
+                <option value="">Select a CFPB complaint…</option>
                 {samples.map((sample) => (
                   <option key={sample.id} value={sample.id}>
                     [{sample.product}] {sample.narrative_preview.slice(0, 80)}…

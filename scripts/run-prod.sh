@@ -15,4 +15,4 @@ if [[ ! -x "$BACKEND_DIR/.venv/bin/python3" ]]; then
 fi
 
 cd "$ROOT_DIR"
-PYTHONPATH="$ROOT_DIR" "$BACKEND_DIR/.venv/bin/python3" -m uvicorn backend.main:app --host 0.0.0.0 --port "${PORT:-8000}"
+OPERON_SERVE_FRONTEND=1 PYTHONPATH="$ROOT_DIR" "$BACKEND_DIR/.venv/bin/python3" -m uvicorn backend.main:app --host 0.0.0.0 --port "${PORT:-8000}"

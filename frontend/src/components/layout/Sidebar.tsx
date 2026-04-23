@@ -10,11 +10,9 @@ const GROUPS: NavGroup[] = [
     label: 'Overview',
     items: [
       { to: '/',             label: 'Synopsis',            exact: true  },
-      { to: '/live',         label: 'Live Feed' },
-      { to: '/explorer',     label: 'Explorer' },
       { to: '/analysis',     label: 'Analysis' },
-      { to: '/enforcement',  label: 'Enforcement Radar' },
-      { to: '/institutions', label: 'Institution Monitor' },
+      { to: '/teams',        label: 'Teams' },
+      { to: '/explorer',     label: 'Explorer' },
     ],
   },
   {
@@ -180,7 +178,12 @@ export function Sidebar() {
 
       {/* System status footer */}
       <div style={{ borderTop: '1px solid var(--border)', padding: '11px 18px', display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
-        <StatusRow label="CFPB"    value={cfpbConnected ? 'LIVE' : 'SYNTHETIC'} green={cfpbConnected} amber={!cfpbConnected} />
+        <StatusRow
+          label="CFPB"
+          value={!connected ? 'OFFLINE' : cfpbConnected ? 'LIVE' : 'CACHE'}
+          green={connected && cfpbConnected}
+          amber={connected && !cfpbConnected}
+        />
         <StatusRow label="Backend" value={connected ? 'ONLINE' : 'OFFLINE'}     amber={!connected} />
         <StatusRow label="Records" value={total.toLocaleString()} />
         <StatusRow label="Sync"    value={ts} mono />

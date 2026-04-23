@@ -65,6 +65,44 @@ export interface DashboardTrends {
   baseline_divergence_breakdown?: NameValue[];
 }
 
+export interface SynopsisSnapshotComplaint {
+  complaint_id: string;
+  date_received?: string | null;
+  product?: string | null;
+  issue?: string | null;
+  company?: string | null;
+  state?: string | null;
+  submitted_via?: string | null;
+  company_response?: string | null;
+  timely?: string | null;
+  consumer_disputed?: string | null;
+  narrative_preview?: string | null;
+}
+
+export interface SynopsisOverviewResponse {
+  meta: {
+    source: string;
+    days: number;
+    date_received_min: string;
+    last_cached_at: string | null;
+    total_cached: number;
+  };
+  kpis: {
+    total_processed: number;
+    auto_resolution_count: number;
+    auto_resolution_rate: number;
+    avg_resolution_days: number | null;
+    response_friction_count: number;
+    response_friction_rate: number;
+  };
+  complaint_volume: TrendPoint[];
+  response_friction: NameValue[];
+  geographic_distribution: Record<string, number>;
+  by_product: NameValue[];
+  top_institutions: NameValue[];
+  live_snapshot: SynopsisSnapshotComplaint[];
+}
+
 export interface ComplianceFlag {
   regulation: string;
   regulation_name: string;
@@ -283,6 +321,12 @@ export interface ComplaintSummary {
   narrative_preview: string;
   channel: string;
   customer_state: string | null;
+  date_received?: string | null;
+  company?: string | null;
+  submitted_via?: string | null;
+  company_response?: string | null;
+  timely?: string | null;
+  consumer_disputed?: string | null;
   tags: string[];
   vulnerable_tags: string[];
   processing_time_ms: number | null;

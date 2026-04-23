@@ -13,6 +13,7 @@ import type {
   SampleComplaint,
   ScheduleDefinition,
   ScheduleRun,
+  SynopsisOverviewResponse,
   SupervisorDashboardSnapshot,
 } from '../store';
 
@@ -42,6 +43,7 @@ export const api = {
   health: () => req<{ status: string }>('/api/health'),
   stats: () => req<DashboardStats>('/api/dashboard/stats'),
   trends: (days = 14) => req<DashboardTrends>(`/api/dashboard/trends?days=${days}`),
+  synopsisCfpb: (days = 30, snapshotLimit = 8) => req<SynopsisOverviewResponse>(`/api/synopsis/cfpb?days=${days}&snapshot_limit=${snapshotLimit}`),
   dashboardSupervisor: (limit = 6) => req<SupervisorDashboardSnapshot>(`/api/dashboard/supervisor?limit=${limit}`),
   intakePreview: () => req<IntakePreviewResponse>('/api/intake/preview'),
   internalTeams: () => req<{ teams: InternalTeamMetric[]; total: number }>('/api/internal-teams'),

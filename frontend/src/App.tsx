@@ -10,6 +10,7 @@ const AuditTrail         = lazy(() => import('./pages/AuditTrail'));
 const EnforcementRadar   = lazy(() => import('./pages/EnforcementRadar'));
 const InstitutionMonitor = lazy(() => import('./pages/InstitutionMonitor'));
 const Analysis           = lazy(() => import('./pages/Analysis'));
+const Teams              = lazy(() => import('./pages/Teams'));
 const Explorer           = lazy(() => import('./pages/Explorer'));
 const Triage             = lazy(() => import('./pages/Triage'));
 const Supervisor         = lazy(() => import('./pages/Supervisor'));
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="/enforcement"  element={<Suspense fallback={<Spinner />}><EnforcementRadar /></Suspense>} />
           <Route path="/institutions" element={<Suspense fallback={<Spinner />}><InstitutionMonitor /></Suspense>} />
           <Route path="/analysis"     element={<Suspense fallback={<Spinner />}><Analysis /></Suspense>} />
+          <Route path="/teams"        element={<Suspense fallback={<Spinner />}><Teams /></Suspense>} />
           <Route path="/explorer"     element={<Suspense fallback={<Spinner />}><Explorer /></Suspense>} />
           <Route path="/triage"       element={<Suspense fallback={<Spinner />}><Triage /></Suspense>} />
           <Route path="/supervisor"   element={<Suspense fallback={<Spinner />}><Supervisor /></Suspense>} />

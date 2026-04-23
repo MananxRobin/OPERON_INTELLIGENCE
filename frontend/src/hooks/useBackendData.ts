@@ -17,7 +17,7 @@ export function useBackendData() {
         const [stats, trends, complaints, samples] = await Promise.all([
           api.stats(),
           api.trends(14),
-          api.complaints(200),
+          api.complaints(1000),
           api.samples(),
         ]);
 
@@ -42,7 +42,7 @@ export function useBackendData() {
     const poll = setInterval(async () => {
       try {
         const [stats, trends, complaints] = await Promise.all([
-          api.stats(), api.trends(14), api.complaints(200),
+          api.stats(), api.trends(14), api.complaints(1000),
         ]);
         const hasRealData = (complaints?.total ?? 0) > 0;
         store().set({
@@ -58,7 +58,7 @@ export function useBackendData() {
       } catch {
         store().set({ backendConnected: false });
       }
-    }, 20_000);
+    }, 60_000);
 
     return () => clearInterval(poll);
   }, []);

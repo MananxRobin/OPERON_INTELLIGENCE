@@ -1,8 +1,6 @@
 /**
- * useCfpbData — fetches CFPB API and automatically falls back to the
- * synthetic pool in the store when the API is unavailable or returns no data.
- * All views (Dashboard, LiveFeed, EnforcementRadar, InstitutionMonitor) use
- * this so they always have data for the demo.
+ * useCfpbData fetches the CFPB proxy and can optionally fall back to the
+ * synthetic pool when a page prefers demo continuity over strict live-only data.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useStore, store } from '../store';
@@ -19,6 +17,7 @@ interface Params {
   state?:              string;
   submitted_via?:      string;
   tags?:               string[];
+  allowSyntheticFallback?: boolean;
 }
 
 function parseHit(h: any): SyntheticCfpbRow {
@@ -50,6 +49,20 @@ function parseHit(h: any): SyntheticCfpbRow {
   };
 }
 
+function extractHits(payload: any): any[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.hits?.hits)) return payload.hits.hits;
+  return [];
+}
+
+function extractTotal(payload: any, fallback: number): number {
+  if (Array.isArray(payload)) return payload.length;
+  const total = payload?.hits?.total;
+  if (typeof total === 'number') return total;
+  if (typeof total?.value === 'number') return total.value;
+  return fallback;
+}
+
 export function useCfpbData(params: Params = {}) {
   const pool = useStore(s => s.syntheticCfpbPool);
 
@@ -57,12 +70,14 @@ export function useCfpbData(params: Params = {}) {
   const [total,     setTotal]     = useState(0);
   const [loading,   setLoading]   = useState(true);
   const [synthetic, setSynthetic] = useState(false); // true = using fallback
+  const [error,     setError]     = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     let used = false;
+    let requestFailed = false;
 
-    // ── 1. Try the real CFPB API ────────────────────────────────────────────
     try {
       const apiParams: Record<string, string | number | string[]> = {
         size: params.size ?? 250,
@@ -76,20 +91,19 @@ export function useCfpbData(params: Params = {}) {
       if (params.submitted_via)     apiParams.submitted_via = params.submitted_via;
       if (params.tags?.length)      apiParams.tags = params.tags;
       const res  = await fetchCfpbComplaints(apiParams);
-      const hits = res.hits?.hits ?? [];
+      const hits = extractHits(res).slice(0, params.size ?? 250);
       if (hits.length > 0) {
         setRows(hits.map(parseHit));
-        setTotal(res.hits?.total?.value ?? hits.length);
+        setTotal(extractTotal(res, hits.length));
         setSynthetic(false);
         store().set({ cfpbConnected: true });
         used = true;
       }
     } catch {
-      // will fall through to synthetic below
+      requestFailed = true;
     }
 
-    // ── 2. Fall back to synthetic pool ─────────────────────────────────────
-    if (!used) {
+    if (!used && params.allowSyntheticFallback !== false) {
       const min = params.date_received_min;
       const max = params.date_received_max;
       let filtered = pool;
@@ -107,9 +121,17 @@ export function useCfpbData(params: Params = {}) {
       store().set({ cfpbConnected: false });
     }
 
+    if (!used && params.allowSyntheticFallback === false) {
+      setRows([]);
+      setTotal(0);
+      setSynthetic(false);
+      setError(requestFailed ? 'Live CFPB data is unavailable right now.' : 'No live CFPB complaints were returned for this window.');
+      store().set({ cfpbConnected: false });
+    }
+
     setLoading(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pool, params.company, params.date_received_min, params.date_received_max, params.product, params.refreshTick, params.size, params.state, params.submitted_via, params.tags]);
+  }, [pool, params.allowSyntheticFallback, params.company, params.date_received_min, params.date_received_max, params.product, params.refreshTick, params.size, params.state, params.submitted_via, params.tags]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -118,5 +140,5 @@ export function useCfpbData(params: Params = {}) {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  return { rows, total, loading, synthetic, refresh: load };
+  return { rows, total, loading, synthetic, error, refresh: load };
 }

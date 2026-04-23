@@ -21,9 +21,9 @@ from backend.database import (
 class Orchestrator:
     """Coordinates the 5-agent pipeline for complaint analysis."""
 
-    def __init__(self, api_key: str, model: str = "deepseek-chat"):
+    def __init__(self, api_key: str, model: str = "gpt-5.4-mini", base_url: str = "https://api.openai.com/v1/"):
         self.client = httpx.Client(
-            base_url="https://api.deepseek.com/v1/",
+            base_url=base_url,
             timeout=90.0,
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -68,10 +68,17 @@ class Orchestrator:
             narrative=narrative,
             product=metadata.get("product"),
             channel=metadata.get("channel", "web"),
+            source=metadata.get("source"),
+            source_label=metadata.get("source_label"),
             customer_state=metadata.get("customer_state"),
             customer_id=metadata.get("customer_id"),
             date_received=metadata.get("date_received", datetime.utcnow().strftime("%Y-%m-%d")),
-            tags=metadata.get("tags", [])
+            tags=metadata.get("tags", []),
+            company=metadata.get("company"),
+            submitted_via=metadata.get("submitted_via"),
+            company_response=metadata.get("company_response"),
+            timely=metadata.get("timely"),
+            consumer_disputed=metadata.get("consumer_disputed"),
         )
         update_complaint_status(complaint_id, "processing")
 

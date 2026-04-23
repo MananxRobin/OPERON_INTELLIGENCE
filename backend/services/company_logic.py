@@ -490,12 +490,13 @@ def build_internal_team_packet(
 
 def build_source_metadata(complaint: Dict[str, Any]) -> Dict[str, Any]:
     channel = complaint.get("channel", "web")
-    source = "manual_analysis"
-    if channel == "cfpb":
-        source = "live_cfpb"
+    source = complaint.get("source") or "manual_analysis"
+    source_label = complaint.get("source_label")
+    if not source_label:
+        source_label = "cfpb complaint feed" if source == "live_cfpb" else "live operations intake"
     return {
         "source": source,
-        "source_label": "live operations intake" if source == "manual_analysis" else "cfpb complaint feed",
+        "source_label": source_label,
         "channel": channel,
         "tags": complaint.get("tags", []),
         "issue": complaint.get("issue"),
@@ -586,6 +587,12 @@ def build_summary_from_detail(detail: Dict[str, Any]) -> Dict[str, Any]:
         "narrative_preview": (complaint.get("narrative") or "")[:160] + ("..." if len(complaint.get("narrative") or "") > 160 else ""),
         "channel": complaint.get("channel", "web"),
         "customer_state": complaint.get("customer_state"),
+        "date_received": complaint.get("date_received"),
+        "company": complaint.get("company"),
+        "submitted_via": complaint.get("submitted_via"),
+        "company_response": complaint.get("company_response"),
+        "timely": complaint.get("timely"),
+        "consumer_disputed": complaint.get("consumer_disputed"),
         "tags": tags,
         "vulnerable_tags": vulnerable_tags,
         "processing_time_ms": detail.get("total_processing_time_ms"),
