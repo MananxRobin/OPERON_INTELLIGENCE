@@ -21,6 +21,7 @@ const GROUPS: NavGroup[] = [
       { to: '/supervisor', label: 'Supervisor' },
       { to: '/analysis',   label: 'Analysis' },
       { to: '/triage',     label: 'Triage' },
+      { to: '/lookup',     label: 'Look-up' },
       { to: '/complaints', label: 'Complaints' },
       { to: '/teams',      label: 'Teams' },
     ],
