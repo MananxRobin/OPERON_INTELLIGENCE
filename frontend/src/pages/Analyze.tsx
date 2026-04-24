@@ -6,6 +6,7 @@ import { EvidencePanel } from '../components/agent/EvidencePanel';
 import { RiskGauge } from '../components/agent/RiskGauge';
 import { RoutingWhyPanel } from '../components/agent/RoutingWhyPanel';
 import { api } from '../services/api';
+import { refreshBackendData } from '../hooks/useBackendData';
 import { useStore } from '../store';
 import type { FullAnalysis, NormalizationPreviewResponse } from '../store';
 
@@ -78,6 +79,7 @@ export default function Analyze() {
             setResult(data);
             setRunning(false);
             setTab('action');
+            refreshBackendData();
             resolve();
           } else if (event === 'error' || event === 'timeout') {
             reject(new Error(event === 'timeout' ? 'Analysis timed out' : 'Stream error'));
