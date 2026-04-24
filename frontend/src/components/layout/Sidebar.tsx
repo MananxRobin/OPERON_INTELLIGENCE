@@ -9,21 +9,20 @@ const GROUPS: NavGroup[] = [
   {
     label: 'Overview',
     items: [
-      { to: '/',             label: 'Synopsis',            exact: true  },
-      { to: '/analysis',     label: 'Analysis' },
-      { to: '/teams',        label: 'Teams' },
-      { to: '/explorer',     label: 'Explorer' },
+      { to: '/',         label: 'Synopsis', exact: true },
+      { to: '/explorer', label: 'Explorer' },
     ],
   },
   {
-    label: 'Agent',
+    label: 'Agents',
     items: [
       { to: '/analyze',    label: 'Analyze' },
-      { to: '/triage',     label: 'Triage' },
-      { to: '/supervisor', label: 'Supervisor' },
-      { to: '/lookup',     label: 'Look-up' },
-      { to: '/complaints', label: 'Complaints' },
       { to: '/audit',      label: 'Audit Trail' },
+      { to: '/supervisor', label: 'Supervisor' },
+      { to: '/analysis',   label: 'Analysis' },
+      { to: '/triage',     label: 'Triage' },
+      { to: '/complaints', label: 'Complaints' },
+      { to: '/teams',      label: 'Teams' },
     ],
   },
 ];
@@ -47,7 +46,7 @@ export function Sidebar() {
   const lastSync      = useStore(s => s.lastSync);
 
   // Each group open/closed — default both open
-  const [open, setOpen] = useState<Record<string, boolean>>({ Overview: true, Agent: true });
+  const [open, setOpen] = useState<Record<string, boolean>>({ Overview: true, Agents: true });
 
   const ts = lastSync instanceof Date
     ? `${String(lastSync.getHours()).padStart(2,'0')}:${String(lastSync.getMinutes()).padStart(2,'0')}:${String(lastSync.getSeconds()).padStart(2,'0')}`
