@@ -54,10 +54,62 @@ const SECTIONS = [
   { id: 'data-sources',   label: 'Data Sources' },
   { id: 'risk-scoring',   label: 'Risk Scoring' },
   { id: 'explainability', label: 'Explainability' },
+  { id: 'agent-prompts',  label: 'Agent Prompts & Rubrics' },
   { id: 'glossary',       label: 'Glossary' },
   { id: 'regulations',    label: 'Regulations Reference' },
   { id: 'faq',            label: 'FAQ' },
 ];
+
+function AgentBlock({
+  n,
+  name,
+  intent,
+  sections,
+}: {
+  n: number;
+  name: string;
+  intent: string;
+  sections: { label: string; items: React.ReactNode[] }[];
+}) {
+  return (
+    <div style={{
+      border: '1px solid var(--border)', borderRadius: 2,
+      padding: '16px 18px', marginBottom: 14, background: 'var(--bg-1)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-weak)', fontVariantNumeric: 'tabular-nums', letterSpacing: '0.08em' }}>
+          {String(n).padStart(2, '0')}
+        </span>
+        <h3 style={{ fontSize: 12, fontWeight: 600, color: 'var(--primary)', letterSpacing: '-0.01em', margin: 0 }}>
+          {name}
+        </h3>
+      </div>
+      <div style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.7, marginBottom: 12, fontStyle: 'italic' }}>
+        {intent}
+      </div>
+      {sections.map((s) => (
+        <div key={s.label} style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-weak)', marginBottom: 6 }}>
+            {s.label}
+          </div>
+          <ul style={{ paddingLeft: 18, margin: 0 }}>
+            {s.items.map((item, i) => (
+              <li key={i} style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.7, marginBottom: 3 }}>{item}</li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Code({ children }: { children: React.ReactNode }) {
+  return (
+    <code style={{ background: 'var(--bg-2)', padding: '1px 5px', borderRadius: 2, fontSize: 10, color: 'var(--secondary)', fontFamily: 'monospace' }}>
+      {children}
+    </code>
+  );
+}
 
 export default function Docs() {
   const [activeSection, setActiveSection] = useState('overview');
@@ -256,6 +308,236 @@ export default function Docs() {
             whenever QA fails, confidence is low, evidence support is weak, compliance risk is critical,
             normalization confidence is low, or the AI diverges materially from the deterministic baseline workflow.
           </Para>
+        </Section>
+
+        {/* Agent Prompts & Rubrics */}
+        <Section id="agent-prompts" title="Agent Prompts & Rubrics">
+          <Para>
+            Operon's 5-agent LangGraph pipeline runs each complaint through a structured prompt with explicit
+            rubrics and required output schemas. Each agent operates independently with deterministic JSON
+            output, low temperature, and full audit logging. Below is the exact prompt intent, rubric, and
+            contract enforced at each step.
+          </Para>
+
+          <AgentBlock
+            n={1}
+            name="Classification Agent"
+            intent="Expert financial complaint classification agent — analyze complaint narrative and output structured classification."
+            sections={[
+              {
+                label: 'Product Categories (choose exactly one)',
+                items: [
+                  <>Credit card, Personal loan, Vehicle loan, Mortgage, Home equity loan,
+                  Student loan, Checking account, Savings account, Debt collection,
+                  Money transfer, Prepaid card</>,
+                ],
+              },
+              {
+                label: 'Severity Rubric',
+                items: [
+                  <><strong style={{ color: 'var(--accent)' }}>CRITICAL</strong> — immediate financial harm, legal threats, potential regulatory violation, elder/servicemember abuse</>,
+                  <><strong style={{ color: 'var(--secondary)' }}>HIGH</strong> — significant financial impact, repeated failures, compliance risk</>,
+                  <><strong style={{ color: 'var(--text-weak)' }}>MEDIUM</strong> — moderate inconvenience, standard dispute, single failure</>,
+                  <><strong style={{ color: 'var(--text-faint)' }}>LOW</strong> — minor issue, informational complaint, easily resolved</>,
+                ],
+              },
+              {
+                label: 'Extraction Requirements',
+                items: [
+                  <>Extract key entities — amounts, dates, names, account references</>,
+                  <>Sentiment score: <Code>-1.0 .. 1.0</Code></>,
+                  <>Confidence score: <Code>0.0 .. 1.0</Code></>,
+                  <>Must provide full reasoning chain</>,
+                ],
+              },
+              {
+                label: 'Required Output Fields',
+                items: [
+                  <><Code>product</Code>, <Code>sub_product</Code>, <Code>issue</Code>, <Code>sub_issue</Code>, <Code>severity</Code>, <Code>sentiment_score</Code>, <Code>urgency</Code>, <Code>confidence</Code>, <Code>key_entities</Code>, <Code>reasoning</Code></>,
+                ],
+              },
+            ]}
+          />
+
+          <AgentBlock
+            n={2}
+            name="Compliance Risk Agent"
+            intent="Expert financial regulatory compliance agent — assess regulatory risk and potential violations from narrative + classification."
+            sections={[
+              {
+                label: 'Regulatory Framework',
+                items: [
+                  <>UDAAP, TILA / Reg Z, ECOA, FCRA, EFTA / Reg E, FDCPA, SCRA, CARD Act, Elder Financial Protection</>,
+                ],
+              },
+              {
+                label: 'Risk Scoring Rubric',
+                items: [
+                  <><Code>0–25</Code> — <strong style={{ color: 'var(--text-faint)' }}>LOW</strong></>,
+                  <><Code>26–50</Code> — <strong style={{ color: 'var(--text-weak)' }}>MEDIUM</strong></>,
+                  <><Code>51–75</Code> — <strong style={{ color: 'var(--secondary)' }}>HIGH</strong></>,
+                  <><Code>76–100</Code> — <strong style={{ color: 'var(--accent)' }}>CRITICAL</strong></>,
+                ],
+              },
+              {
+                label: 'Hard Instructions',
+                items: [
+                  <>Must cite specific narrative evidence for every flag</>,
+                  <>Must identify specific regulation / section potentially violated</>,
+                  <>Must provide explainable reasoning suitable for regulatory review</>,
+                ],
+              },
+              {
+                label: 'Required Output Fields',
+                items: [
+                  <><Code>risk_score</Code>, <Code>risk_level</Code>, <Code>flags[]</Code>, <Code>applicable_regulations</Code>, <Code>requires_escalation</Code>, <Code>reasoning</Code></>,
+                  <>Each flag must include: <Code>regulation</Code>, <Code>regulation_name</Code>, <Code>description</Code>, <Code>evidence_quote</Code>, <Code>severity</Code></>,
+                ],
+              },
+            ]}
+          />
+
+          <AgentBlock
+            n={3}
+            name="Routing Agent"
+            intent="Intelligent complaint routing agent — assign the case to the right internal team and urgency track."
+            sections={[
+              {
+                label: 'Teams',
+                items: [
+                  <>Credit Card Disputes, Credit Card Ops, Lending Ops, Mortgage Servicing,
+                  Digital Banking Support, Debt Collection Compliance, Legal &amp; Compliance,
+                  Fraud Investigation, Customer Retention, Executive Response</>,
+                ],
+              },
+              {
+                label: 'Tier Rubric',
+                items: [<>Junior, Senior, Manager, Legal</>],
+              },
+              {
+                label: 'Priority & SLA Rubric',
+                items: [
+                  <><Code>P1_IMMEDIATE</Code> — 4h SLA</>,
+                  <><Code>P2_HIGH</Code> — 24h SLA</>,
+                  <><Code>P3_MEDIUM</Code> — 48h SLA</>,
+                  <><Code>P4_LOW</Code> — 72h SLA</>,
+                ],
+              },
+              {
+                label: 'Escalation Rules',
+                items: [
+                  <>Compliance risk ≥ 76 → <strong style={{ color: 'var(--accent)' }}>ALWAYS</strong> route to Legal &amp; Compliance</>,
+                  <>CFPB channel → Executive Response involvement</>,
+                  <>Elder abuse indicators → immediate manager + compliance escalation</>,
+                  <>Servicemember issues → priority handling + SCRA specialist</>,
+                  <>Repeated complaints (3+) → Customer Retention + Manager</>,
+                ],
+              },
+              {
+                label: 'Required Output Fields',
+                items: [
+                  <><Code>assigned_team</Code>, <Code>assigned_tier</Code>, <Code>priority</Code>, <Code>sla_hours</Code>, <Code>escalation_path</Code>, <Code>requires_immediate_attention</Code>, <Code>reasoning</Code></>,
+                ],
+              },
+            ]}
+          />
+
+          <AgentBlock
+            n={4}
+            name="Resolution Agent"
+            intent="Expert complaint resolution agent — produce end-to-end resolution package."
+            sections={[
+              {
+                label: 'Deliverables',
+                items: [
+                  <>Step-by-step internal action plan with timelines</>,
+                  <>Empathetic, professional, compliant customer response letter</>,
+                  <>Preventive recommendations for recurrence</>,
+                ],
+              },
+              {
+                label: 'Resolution Principles',
+                items: [
+                  <>Prioritize customer harm remediation first</>,
+                  <>Include dollar remediation when applicable</>,
+                  <>Reference regulatory timeline requirements</>,
+                  <>Customer response must be empathetic, specific, non-adversarial</>,
+                  <>Do <strong style={{ color: 'var(--accent)' }}>not</strong> admit regulatory violations in customer letter</>,
+                  <>Include required disclosure language and escalation rights</>,
+                  <>Preventive recommendations should address root causes</>,
+                ],
+              },
+              {
+                label: 'Required Output Fields',
+                items: [
+                  <><Code>action_plan</Code>, <Code>customer_response</Code>, <Code>internal_notes</Code>, <Code>preventive_recommendations</Code>, <Code>estimated_resolution_days</Code>, <Code>remediation_amount</Code>, <Code>reasoning</Code></>,
+                ],
+              },
+            ]}
+          />
+
+          <AgentBlock
+            n={5}
+            name="QA Validation Agent"
+            intent={`Rigorous adversarial reviewer — explicitly told to "find problems, don't rubber-stamp."`}
+            sections={[
+              {
+                label: '10-Check Rubric',
+                items: [
+                  <>Classification accuracy</>,
+                  <>Severity appropriateness</>,
+                  <>Compliance completeness (missed risks?)</>,
+                  <>Evidence quality (flags backed by narrative quotes?)</>,
+                  <>Routing logic quality</>,
+                  <>Response quality (empathetic / professional / accurate)</>,
+                  <>Regulatory compliance of response language</>,
+                  <>Action-plan feasibility and sequencing</>,
+                  <>No hallucinations</>,
+                  <>PII safety</>,
+                ],
+              },
+              {
+                label: 'Scoring Rubric',
+                items: [
+                  <><Code>overall_score</Code>: 0.0 .. 1.0</>,
+                  <>Each check: pass / fail + details</>,
+                  <>Overall pass intended when no critical checks fail</>,
+                ],
+              },
+              {
+                label: 'Required Output Fields',
+                items: [
+                  <><Code>overall_score</Code>, <Code>checks[]</Code>, <Code>passed</Code>, <Code>improvements[]</Code>, <Code>reasoning</Code></>,
+                ],
+              },
+            ]}
+          />
+
+          <div style={{ marginTop: 6 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--primary)', marginBottom: 10 }}>
+              Cross-Agent Enforcement (BaseAgent)
+            </div>
+            <ul style={{ paddingLeft: 18, margin: 0 }}>
+              <li style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.7, marginBottom: 4 }}>
+                System adds strict instruction: return <strong>one</strong> valid JSON object only
+              </li>
+              <li style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.7, marginBottom: 4 }}>
+                Uses JSON response mode — <Code>response_format: json_object</Code>
+              </li>
+              <li style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.7, marginBottom: 4 }}>
+                Reiterates required keys from schema in every prompt
+              </li>
+              <li style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.7, marginBottom: 4 }}>
+                Temperature set low (<Code>0.1</Code>) for deterministic outputs
+              </li>
+              <li style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.7, marginBottom: 4 }}>
+                On parse / shape issues, normalization coerces types and applies defaults
+              </li>
+              <li style={{ fontSize: 10, color: 'var(--secondary)', lineHeight: 1.7, marginBottom: 4 }}>
+                Audit logs capture decision, confidence, reasoning, evidence, duration per agent
+              </li>
+            </ul>
+          </div>
         </Section>
 
         {/* Glossary */}
