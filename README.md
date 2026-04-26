@@ -1,6 +1,6 @@
 # Operon Intelligence
 
-Operon Intelligence is a complaint-operations platform for banks, fintechs, and lenders. It ingests complaints from multiple channels, normalizes them into one canonical dataset, analyzes them through an agentic workflow, routes them to internal teams, and exposes the full customer/ticket story through an operator dashboard.
+Operon Intelligence is a unified complaint-operations platform built for banks, fintechs, and lenders. It ingests complaints from multiple channels, normalizes them into a single canonical dataset, analyzes them through an agentic workflow, routes them to the right internal teams, and surfaces the full customer and ticket story through an operator-friendly dashboard.
 
 The current codebase is designed to support both demo mode and production-style local deployment:
 
